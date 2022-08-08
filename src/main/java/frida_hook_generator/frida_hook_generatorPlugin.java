@@ -44,7 +44,8 @@ import java.util.List;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.datatransfer.Clipboard;
-
+import java.util.ArrayList;
+import java.util.HashMap;
 
 import docking.action.MenuData;
 
@@ -82,6 +83,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 
 	GenerateFridaHookScriptAction FridaHookScriptAction;
 	GenerateFridaHookScriptAction FridaHookSnippetAction;
+	GenerateFridaHookScriptAction FridaHookAdvancedAction;
 
 	/**
 	 * Plugin constructor.
@@ -93,14 +95,21 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 
 		String pluginName = getName();
 		Boolean isSnippet=false;
+		Boolean isAdvanced=false;
 		//first, create the class for script
-		FridaHookScriptAction = new GenerateFridaHookScriptAction(tool, pluginName,isSnippet);
+		FridaHookScriptAction = new GenerateFridaHookScriptAction(tool, pluginName,isSnippet,isAdvanced);
 		tool.addAction(FridaHookScriptAction);
 		
 		isSnippet=true;
 		//second, create the class for snippet
-		FridaHookSnippetAction = new GenerateFridaHookScriptAction(tool, pluginName,isSnippet);
+		FridaHookSnippetAction = new GenerateFridaHookScriptAction(tool, pluginName,isSnippet,isAdvanced);
 		tool.addAction(FridaHookSnippetAction);
+		
+		
+		isAdvanced=true;
+		FridaHookAdvancedAction = new GenerateFridaHookScriptAction(tool, pluginName,isSnippet,isAdvanced);
+		tool.addAction(FridaHookAdvancedAction);
+		
 
 		// TODO: Customize help (or remove if help is not desired)
 		String topicName = this.getClass().getPackage().getName();
@@ -119,30 +128,45 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 	
 	public class GenerateFridaHookScriptAction extends ListingContextAction {
 
-		private  PluginTool incoming_plugintool;
-		private  Boolean isSnippet;
-		private  ConsoleService consoleService;
+		private PluginTool incoming_plugintool;
+		private Boolean isSnippet;
+		private Boolean isAdvanced;
+		private ConsoleService consoleService;
 		
-		private  Program current_program; 
-		private  String current_program_name;
-		private  String current_program_name_sanitized;
-		private  Listing current_program_listing;
-		private  Language current_program_language;
-		private  Address image_base;
-		private  Processor current_program_processor;
-		private  String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-
-		public GenerateFridaHookScriptAction(PluginTool tool, String owner, Boolean isSnippet) {
+		private Program current_program; 
+		private String current_program_name;
+		private String current_program_name_sanitized;
+		private Listing current_program_listing;
+		private Language current_program_language;
+		private Address image_base;
+		private Processor current_program_processor;
+		private String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+		private AdvancedHookOptionsDialog advancedhookoptionsdialog;
+		//This is a hashmap that contains for which addresses a hook has been generated, in the current batch. It is a data structure held so that interceptor hooks are not being created for the same address twice. The value of the field will be n the following format: <index in sequence of addresses>|<reason for hook 1>|<reason for hook 2>|....
+		private HashMap<String, String> Addresses_for_current_hook_str;
+		private int how_many_addresses_have_been_hooked_so_far_in_this_batch;
+		//This ArrayList keeps the addresses for which a hook is generated, by order of appearance. The reason is that in the future (when reasons of hooking are also printed in the console), we might need fast lookup for the address that came at position X.
+		private ArrayList<String> addresses_for_which_hook_is_generated_in_order_of_appearance;
+		//This ArrayList keeps the hooks which are generated for every individual address, in order of appearance.
+		private ArrayList<String> hooks_generated_per_address_in_order_of_appearance;
+		
+		public GenerateFridaHookScriptAction(PluginTool tool, String owner, Boolean isSnippet, Boolean isAdvanced) {
 			super("Copy Frida Hook Script or Snippet", owner);
 			this.incoming_plugintool = tool;
 			this.isSnippet = isSnippet;
-			if (isSnippet) {
+			this.isAdvanced = isAdvanced;
+
+			if (isSnippet && !isAdvanced) {
 				setPopupMenuData(new MenuData(new String[] { "Copy Frida Hook Snippet" },null,"Frida-Hook"));
 			}
-			else
+			else if (!isSnippet && !isAdvanced)
 			{
 				setPopupMenuData(new MenuData(new String[] { "Copy Frida Hook Script" },null,"Frida-Hook"));
 				//setKeyBindingData(new KeyBindingData(KeyEvent.VK_H, 0));
+			}
+			else if (isAdvanced)
+			{
+				setPopupMenuData(new MenuData(new String[] { "Create Advanced Frida Hook..." },null,"Frida-Hook"));
 			}
 
 		}
@@ -155,6 +179,17 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		@Override
 		protected void actionPerformed(ListingActionContext context) {
 			System.out.println("Called Action Performed");
+			
+			//Initialize the internal data structures. This should be done here and not in the constructor, as we purposefully do not want to keep state between two invocations of the plugin (the user might have deleted some code, we don't really know what is in the .js file)
+			this.Addresses_for_current_hook_str= new HashMap<String, String>();
+			this.how_many_addresses_have_been_hooked_so_far_in_this_batch=0;
+			this.addresses_for_which_hook_is_generated_in_order_of_appearance=new ArrayList<String>();
+			this.hooks_generated_per_address_in_order_of_appearance=new ArrayList<String>();
+			if (this.isAdvanced)
+			{
+				this.advancedhookoptionsdialog = new AdvancedHookOptionsDialog("Advanced Frida Hook Options",tool);
+			}
+			
 			
 			Address addr = context.getAddress();
 			ProgramLocation location = context.getLocation();
@@ -175,6 +210,11 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			//Initialize the console
 			this.consoleService=this.incoming_plugintool.getService(ConsoleService.class); //Note: If this line is called when initializing the tool (in the constructor), then the consoleService will be null
 
+			if (this.isAdvanced)
+			{
+				System.gc(); //If advanced hooks are created many times, this may lead to a lot of memory being used
+				this.advancedhookoptionsdialog.fetch_advanced_hook_options(addr, current_program);
+			}
 			
 			this.current_program = context.getProgram();
 			this.current_program_name = this.current_program.getName();
@@ -186,81 +226,228 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			this.current_program_processor = this.current_program_language.getProcessor();
 
 			
-			if (current_function != null)
+			if (current_function==null && !this.isAdvanced)
 			{
-				Address current_function_entry_point=current_function.getEntryPoint();
-
-				String hook_str="";
-				
-				Boolean we_are_at_start_of_function=current_function_entry_point.equals(addr);
-				
-				//Create the prologue
-				if (!this.isSnippet)
-				{
-					hook_str+="var module_name_"+this.current_program_name_sanitized+"='"+this.current_program_name+"';\n";
-					hook_str+="\n";
-					hook_str+="function start_timer_for_intercept() {\n"
-							+ "  setTimeout(\n"
-							+ "    function() {\n"
-							+ "      console.log(\"Registering interceptors...\")\n";
-					hook_str+="      \n";
-					hook_str+="      \n";
-				}
+				//No advanced hooking, tried to hook address which is not in a function
+				System.out.println("No hook generated, current function==NULL");
+				Msg.showInfo(getClass(), context.getComponentProvider().getComponent(), "Hook generation error", "No hook generated, current function is NULL.");
+				return;
+			}
 			
-				
-				hook_str=hook_str.concat(generate_snippet_hook_for_address(context,addr,true));
-				
-
-				//now the epilogue
-				if (!this.isSnippet)
+			//Else, begin creating the hook
+			String hook_str="";
+			
+			//Now, in case of Advanced Options, make sure to update the isSnippet variable
+			if (this.isAdvanced)
+			{
+				if (this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked)
 				{
-					hook_str+="      \n";
-					hook_str+="      console.log(\"Registered interceptors\")\n"
-							+ "    }, 2000);//milliseconds\n"
-							+ "}\n"
-							+ "start_timer_for_intercept();\n";
-				}
-				System.out.println(hook_str);
-				
-				//Copy to clipboard
-				StringSelection stringSelection = new StringSelection(hook_str);
-				Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-				clipboard.setContents(stringSelection, null);
-								
-				
-				//Print to Console	
-				if (this.consoleService!=null)
-				{
-					this.consoleService.print(hook_str);
+					this.isSnippet=false;
 				}
 				else
 				{
-					System.out.println("Can't print to console because consoleService is null");
+					this.isSnippet=true;
 				}
-				
-				
+			}
+			
+			
+			//Create the prologue
+			if (!this.isSnippet)
+			{
+				hook_str+=generate_prologue_for_address(context,addr,true);
+			}
+			
+			//handle the simple right click case
+			if (!this.isAdvanced)
+			{
+				hook_str=hook_str.concat(handle_simple_right_click_hook_generation(context,addr,true));
+			}
+			//handle all Advanced cases
+			if (this.isAdvanced)
+			{
+				hook_str=hook_str.concat(handle_advanced_hook_generation(context,addr,true));
+			}
+			
+			//now the epilogue
+			if (!this.isSnippet)
+			{
+				hook_str+=generate_epilogue_for_address(context,addr,true);
+			}
+			
+			
+			
+			//Now, out put the string. Copy to clipboard, print to console...
+			handle_output(hook_str);
+					
+		}
+		
+		
+		protected String generate_epilogue_for_address(ListingActionContext context, Address addr, Boolean print_debug) {
+			
+			String hook_str="";
+			
+			hook_str+="      \n";
+			hook_str+="      console.log(\"Registered interceptors\")\n"
+					+ "    }, 2000);//milliseconds\n"
+					+ "}\n"
+					+ "start_timer_for_intercept();\n";
+			
+			return hook_str;
+					
+		}
+		
+		
+		protected String generate_prologue_for_address(ListingActionContext context, Address addr, Boolean print_debug) {
+			
+			String hook_str="";
+			
+			hook_str+="var module_name_"+this.current_program_name_sanitized+"='"+this.current_program_name+"';\n";
+			hook_str+="\n";
+			hook_str+="function start_timer_for_intercept() {\n"
+					+ "  setTimeout(\n"
+					+ "    function() {\n"
+					+ "      console.log(\"Registering interceptors...\")\n";
+			hook_str+="      \n";
+			hook_str+="      \n";
+			
+			return hook_str;
+					
+		}
+		
+
+		protected void handle_output(String hook_str)
+		{
+			//Print to eclipse console
+			System.out.println(hook_str);
+			
+			//Copy to clipboard
+			StringSelection stringSelection = new StringSelection(hook_str);
+			Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+			clipboard.setContents(stringSelection, null);
+							
+			
+			//Print to Ghidra Console	
+			if (this.consoleService!=null)
+			{
+				this.consoleService.print(hook_str);
 			}
 			else
 			{
-				System.out.println("No hook generated, current function==NULL");
-				Msg.showInfo(getClass(), context.getComponentProvider().getComponent(), "Hook generation error", "No hook generated, current function is NULL.");
+				System.out.println("Can't print to console because consoleService is null");
 			}
-			
 		}
 		
 		
 		
 		
 		
-
-		protected String generate_snippet_hook_for_address(ListingActionContext context, Address addr, Boolean print_debug) {
+		
+		protected String handle_simple_right_click_hook_generation(ListingActionContext context, Address addr, Boolean print_debug)
+		{
+			return generate_snippet_hook_for_address(context,addr,print_debug,"Simple Right Click");
+		}
+		
+		
+		
+		
+		
+		protected String handle_advanced_hook_generation(ListingActionContext context, Address addr, Boolean print_debug)
+		{
+			Function current_function = this.current_program.getFunctionManager().getFunctionContaining(addr);
+			String advanced_hook_str="";
 			
-			//Try to recalculate the parameters
+			if (this.advancedhookoptionsdialog.isReferencestoAddressCheckBoxchecked && current_function!=null)
+			{
+				Instruction current_instruction=this.current_program_listing.getInstructionAt(addr);
+				if (current_instruction!=null)
+				{
+
+					ReferenceIterator ref_iter= current_instruction.getReferenceIteratorTo();
+					while(ref_iter.hasNext())
+					{
+						Reference ref = ref_iter.next();
+						Address newaddr=ref.getFromAddress();
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address Reference to address "+addr));
+					}					
+				}
+			}
+			
+			
+			if (this.advancedhookoptionsdialog.isReferencestoFunctionCheckboxchecked && current_function!=null)
+			{
+				Instruction instruction_of_current_function_start=this.current_program_listing.getInstructionAt(current_function.getEntryPoint());
+			
+				if (instruction_of_current_function_start!=null)
+				{
+					ReferenceIterator ref_iter= instruction_of_current_function_start.getReferenceIteratorTo();
+					while(ref_iter.hasNext())
+					{
+						Reference ref = ref_iter.next();
+						Address newaddr=ref.getFromAddress();
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address Reference to function at "+current_function.getEntryPoint()+" containing address "+addr));
+					}
+				}
+				
+			}
+		
+			if (this.advancedhookoptionsdialog.isFunctionsReferencingFunctionCheckboxchecked && current_function!=null)
+			{
+				Instruction instruction_of_current_function_start=current_program_listing.getInstructionAt(current_function.getEntryPoint());
+				
+				if (instruction_of_current_function_start!=null)
+				{
+					ReferenceIterator ref_iter= instruction_of_current_function_start.getReferenceIteratorTo();
+					while(ref_iter.hasNext())
+					{
+						Reference ref = ref_iter.next();
+						Address newaddr=ref.getFromAddress();
+						Function new_function = this.current_program.getFunctionManager().getFunctionContaining(newaddr);
+						if (new_function!=null)
+						{
+							advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,new_function.getEntryPoint(),true,"Function reference to function at "+current_function.getEntryPoint()+" containing address "+addr));
+						}
+					}
+				}
+				
+			}
+			
+			return advanced_hook_str;
+		}
+		
+		
+		
+		
+		
+		
+		
+	
+		
+		
+		
+		
+		
+		
+		
+
+		protected String generate_snippet_hook_for_address(ListingActionContext context, Address addr, Boolean print_debug, String reason_for_hook_generation) {
+			
+			if (this.Addresses_for_current_hook_str.containsKey(addr.toString()))
+			{
+				//Just update the hashmap to reflect that another reason was added for the address to be hooked
+				String tmpstr=Addresses_for_current_hook_str.get(addr.toString());
+				this.Addresses_for_current_hook_str.put(addr.toString(),tmpstr.concat("|").concat(reason_for_hook_generation));
+				return (" //Address:"+addr+", already registered interceptor for that address\n");
+			}
+			
+			//Try to recalculate some parameters
 			Function current_function = this.current_program.getFunctionManager().getFunctionContaining(addr);
 			
 			if (current_function==null)
 			{
-				return ("//Address:"+addr+", not in a function\n");
+				//The data structures should be updated
+				String in_place_of_hook=" //Address:"+addr+", not in a function\n";
+				update_internal_data_structures(addr,in_place_of_hook,"not in a function");
+				return (in_place_of_hook);
 			}
 
 			Address current_function_entry_point=current_function.getEntryPoint();
@@ -345,12 +532,25 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 								 .concat("      Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+");\n\n");
 
 			}
-				
+			
 
+			update_internal_data_structures(addr,hook_str,reason_for_hook_generation);
 			return hook_str;
 			
 			
 			
+		}
+		
+		
+		
+		
+		protected void update_internal_data_structures(Address addr,String hook_str, String reason_for_hook_generation)
+		{
+			this.how_many_addresses_have_been_hooked_so_far_in_this_batch++;
+			String tmpstr=String.valueOf(this.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"|"+reason_for_hook_generation;
+			this.Addresses_for_current_hook_str.put(addr.toString(),tmpstr);
+			this.addresses_for_which_hook_is_generated_in_order_of_appearance.add(addr.toString());
+			this.hooks_generated_per_address_in_order_of_appearance.add(hook_str);
 		}
 		
 
@@ -358,5 +558,4 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 	
 		
 }
-
 
