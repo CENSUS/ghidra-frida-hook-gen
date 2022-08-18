@@ -37,11 +37,13 @@ import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
+import ghidra.util.task.TaskMonitor;
 import resources.Icons;
 
 import java.awt.datatransfer.StringSelection;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.datatransfer.Clipboard;
@@ -136,6 +138,8 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		private PluginTool incoming_plugintool;
 		private Boolean isSnippet;
 		private Boolean isAdvanced;
+		private Boolean include_onEnter_in_function_hooks;
+		private Boolean include_onLeave_in_function_hooks;
 		private ConsoleService consoleService;
 		
 		private Program current_program; 
@@ -146,7 +150,8 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		private Address image_base;
 		private Processor current_program_processor;
 		private String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-		private AdvancedHookOptionsDialog advancedhookoptionsdialog;
+		protected AdvancedHookOptionsDialog advancedhookoptionsdialog;
+		private int maximum_number_of_reasons_to_show=0;
 		//This is a hashmap that contains for which addresses a hook has been generated, in the current batch. It is a data structure held so that interceptor hooks are not being created for the same address twice. The value of the field will be in the following format: <index in sequence of addresses>|<reason for hook 1>|<reason for hook 2>|....
 		private HashMap<String, String> Addresses_for_current_hook_str;
 		private int how_many_addresses_have_been_hooked_so_far_in_this_batch;
@@ -154,6 +159,11 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		private ArrayList<Address> addresses_for_which_hook_is_generated_in_order_of_appearance;
 		//This ArrayList keeps the hooks which are generated for every individual address, in order of appearance.
 		private ArrayList<String> hooks_generated_per_address_in_order_of_appearance;
+		
+		//The following three parameters are related to the background task that runs the advanced hook generation
+		private Advanced_hook_generation_task advanced_hook_generation_task;
+		protected volatile TaskMonitor incoming_monitor;
+		protected volatile String result_of_advanced_hook_generation;
 				
 		public GenerateFridaHookScriptAction(PluginTool tool, String owner, Boolean isSnippet, Boolean isAdvanced) {
 			super("Copy Frida Hook Script or Snippet", owner);
@@ -190,6 +200,8 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			this.how_many_addresses_have_been_hooked_so_far_in_this_batch=0;
 			this.addresses_for_which_hook_is_generated_in_order_of_appearance=new ArrayList<Address>();
 			this.hooks_generated_per_address_in_order_of_appearance=new ArrayList<String>();
+			this.include_onEnter_in_function_hooks=true;
+			this.include_onLeave_in_function_hooks=true;
 			if (this.isAdvanced)
 			{
 				this.advancedhookoptionsdialog = new AdvancedHookOptionsDialog("Advanced Frida Hook Options",tool);
@@ -224,6 +236,8 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 					System.out.println("User clicked at advanced options but did not press OK");
 					return;
 				}
+				//Set up the boolean variables affecting the function hook generation
+				interpret_user_custom_options_on_function_hook_generation();
 			}
 			
 			/* Initialize some other useful things*/
@@ -276,26 +290,15 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			//handle all Advanced cases
 			if (this.isAdvanced)
 			{
-				hook_str=hook_str.concat(handle_advanced_hook_generation(context,addr,false));
+				//Initialize the task which will do the job
+				this.advanced_hook_generation_task=new Advanced_hook_generation_task("Generating Hooks...",this.incoming_plugintool,this,context,addr,false);
+				this.incoming_monitor=null;
+				this.result_of_advanced_hook_generation="";
+				this.incoming_plugintool.execute(advanced_hook_generation_task); //this actually runs the handle_advanced_hook_generation() function, as well as the reason backpatching if it is required
+				//Due to the way the task is constructed (modal = true, waitfortaskcompleted=true), the code will block here until the task is done.
+				hook_str=hook_str.concat(this.result_of_advanced_hook_generation); //The result is placed in this.result_of_advanced_hook_generation
 			}
-			
-			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
-			{
-				/*
-				 * If that is the case, then the hook_str only has the prologue, as every other hook returned the empty string or a comment.
-				 * Now it is time to go through all the hooks in the internal data structures and patch the reasons why they were hooked
-				 */
-				int i;
-				for (i=0;i<this.how_many_addresses_have_been_hooked_so_far_in_this_batch;i++)
-				{
-					Address current_addr =this.addresses_for_which_hook_is_generated_in_order_of_appearance.get(i);
-					String current_hook_for_addr=this.hooks_generated_per_address_in_order_of_appearance.get(i);
-					String reason_str_for_current_hook=this.Addresses_for_current_hook_str.get(current_addr.toString());
-					String formatted_reason_str_for_current_hook=format_reason_for_hooking(reason_str_for_current_hook);
-					hook_str=hook_str.concat(current_hook_for_addr.replace("PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+current_addr,formatted_reason_str_for_current_hook));
-				}
-			}
-			
+
 			if (this.isAdvanced)
 			{
 				hook_str=hook_str.concat("//Attempted to generate hooks for "+this.Addresses_for_current_hook_str.size()+" different addresses\n");
@@ -310,10 +313,17 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			
 			handle_output(hook_str);
 			
-			//one last time, to clear
+			//cleanup
 			if (this.isAdvanced)
 			{
 				//Try to free as much memory as possible at the end
+				this.advancedhookoptionsdialog=null;
+				this.Addresses_for_current_hook_str=null;
+				this.addresses_for_which_hook_is_generated_in_order_of_appearance=null;
+				this.hooks_generated_per_address_in_order_of_appearance=null;
+				this.incoming_monitor=null;
+				this.result_of_advanced_hook_generation="";
+				this.advanced_hook_generation_task=null;
 				System.gc();
 			}
 					
@@ -324,11 +334,22 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			
 			String hook_str="";
 			
-			hook_str+="      \n";
-			hook_str+="      console.log(\"Registered interceptors\")\n"
-					+ "    }, 2000);//milliseconds\n"
-					+ "}\n"
-					+ "start_timer_for_intercept();\n";
+			if (!this.isAdvanced || (this.isAdvanced && !this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked) || (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==0))
+			{
+				//default method
+				hook_str+="      \n";
+				hook_str+="      console.log(\"Registered interceptors.\");\n"
+						+ "    }, 2000);//milliseconds\n"
+						+ "}\n"
+						+ "start_timer_for_intercept();\n";
+			}
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==1)
+			{
+				//dlopen() method
+				hook_str+="      \n"
+						+ "      console.log(\"Registered interceptors.\");\n"
+						+ "}\n";
+			}
 			
 			return hook_str;
 					
@@ -339,30 +360,113 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			
 			String hook_str="";
 			
-			hook_str+="var module_name_"+this.current_program_name_sanitized+"='"+this.current_program_name+"';\n";
-			hook_str+="\n";
-			hook_str+="function start_timer_for_intercept() {\n"
-					+ "  setTimeout(\n"
-					+ "    function() {\n"
-					+ "      console.log(\"Registering interceptors...\")\n";
-			hook_str+="      \n";
-			hook_str+="      \n";
-			
+			if (!this.isAdvanced || (this.isAdvanced && !this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked) || (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==0))
+			{
+				//default method
+				hook_str+="var module_name_"+this.current_program_name_sanitized+"='"+this.current_program_name+"';\n";
+				hook_str+="\n";
+				hook_str+="function start_timer_for_intercept() {\n"
+						+ "  setTimeout(\n"
+						+ "    function() {\n"
+						+ "      console.log(\"Registering interceptors...\");\n";
+				hook_str+="      \n";
+				hook_str+="      \n";
+			}
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==1)
+			{
+				//dlopen() method
+				hook_str+="var module_name_"+this.current_program_name_sanitized+"='"+this.current_program_name+"';\n";
+				hook_str+="\n";
+				hook_str+="function extract_libname_from_dlopen_arg(dlopen_arg)\n"
+						+ "{\n"
+						+ "    if (dlopen_arg!==null && dlopen_arg.indexOf(\"/\")>=0)\n"
+						+ "    {\n"
+						+ "        var array_of_subdirs=dlopen_arg.split(\"/\");\n"
+						+ "        return array_of_subdirs[array_of_subdirs.length-1];\n"
+						+ "    }\n"
+						+ "    else\n"
+						+ "    {\n"
+						+ "        return dlopen_arg;\n"
+						+ "    }\n"
+						+ "}\n"
+						+ "\n"
+						+ "function do_the_dlopen_interception(incoming_export)\n"
+						+ "{\n"
+						+ "    Interceptor.attach(incoming_export.address, {\n"
+						+ "        onEnter: function(args) {\n"
+						+ "            console.log(\"DLOPEN: Entered dlopen related function: \"+incoming_export.name + \", lib to load:\"+args[0].readCString());\n"
+						+ "            this.libname=args[0].readCString();\n"
+						+ "        },\n"
+						+ "        onLeave: function(retval) {\n"
+						+ "            console.log(\"DLOPEN: Exited dlopen related function:\"+incoming_export.name+\" ,retval:\"+retval);\n"
+						+ "            if (extract_libname_from_dlopen_arg(this.libname)==module_name_"+this.current_program_name_sanitized+")\n"
+						+ "            {\n"
+						+ "                register_interceptors();\n"
+						+ "            }\n"
+						+ "        }\n"
+						+ "    });\n"
+						+ "}\n"
+						+ "\n"
+						+ "var process_modules = Process.enumerateModules();\n"
+						+ "var we_have_encountered_at_least_one_dlopen=false;\n"
+						+ "var we_encountered_the_lib_in_the_initial_pass_of_the_loaded_modules=false;\n"
+						+ "for(var i=0;i<process_modules.length;i++){\n"
+						+ "\n"
+						+ "    if (process_modules[i].name==module_name_"+this.current_program_name_sanitized+")\n"
+						+ "    {\n"
+						+ "        we_encountered_the_lib_in_the_initial_pass_of_the_loaded_modules=true;\n"
+						+ "        register_interceptors();\n"
+						+ "        break;\n"
+						+ "    }\n"
+						+ "    var exports = process_modules[i].enumerateExports()\n"
+						+ "    for(var j=0;j<exports.length;j++)\n"
+						+ "    {\n"
+						+ "        //if (exports[j].name.indexOf(\"dlopen\")>=0) //there may be more than one dlopen related functions, like __libc_dlopen_mode()\n"
+						+ "        if (exports[j].name==\"dlopen\")\n"
+						+ "        {\n"
+						+ "            console.log(JSON.stringify(exports[j]))\n"
+						+ "            do_the_dlopen_interception(exports[j]);\n"
+						+ "            we_have_encountered_at_least_one_dlopen=true;\n"
+						+ "        }\n"
+						+ "    }\n"
+						+ "}\n"
+						+ "if (!we_encountered_the_lib_in_the_initial_pass_of_the_loaded_modules && !we_have_encountered_at_least_one_dlopen)\n"
+						+ "{\n"
+						+ "    console.log(\"DLOPEN: No dlopen found, exiting the frida script...\")\n"
+						+ "    throw '';\n"
+						+ "}\n"
+						+ "\n"
+						+ "\n"
+						+ "function register_interceptors()\n"
+						+ "{\n"
+						+ "      console.log(\"Registering interceptors...\")\n"
+						+ "      \n\n";
+				
+			}
 			return hook_str;
-					
+			
 		}
 		
 
 		protected void handle_output(String hook_str)
 		{
+			Boolean user_has_cancelled_do_not_destroy_clipboard=false;
+			if (this.isAdvanced && this.advanced_hook_generation_task!=null && this.advanced_hook_generation_task.is_cancelled)
+			{
+				//This is the case where the user has manually cancelled
+				hook_str="// User has cancelled\n";
+				user_has_cancelled_do_not_destroy_clipboard=true;
+			}
 			//Print to eclipse console
 			System.out.println(hook_str);
 			
-			//Copy to clipboard
-			StringSelection stringSelection = new StringSelection(hook_str);
-			Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-			clipboard.setContents(stringSelection, null);
-							
+			if (!user_has_cancelled_do_not_destroy_clipboard)
+			{
+				//Copy to clipboard
+				StringSelection stringSelection = new StringSelection(hook_str);
+				Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+				clipboard.setContents(stringSelection, null);
+			}				
 			
 			//Print to Ghidra Console	
 			if (this.consoleService!=null)
@@ -396,24 +500,44 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			
 			if (this.consoleService!=null)
 			{
-				this.consoleService.println("// Generating hook... Please wait");
+				this.consoleService.println("// Generating hooks... Please wait");
 			}
 			
+			if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
+			this.incoming_monitor.setMessage("Generating Hooks...");
+			
+			
 			/*References to address*/
-			if (this.advancedhookoptionsdialog.isReferencestoAddressCheckBoxchecked && current_function!=null)
+			if (this.advancedhookoptionsdialog.isReferencestoAddressCheckBoxchecked || this.advancedhookoptionsdialog.isFunctionsReferencingAddressCheckBoxchecked)
 			{
-				Instruction current_instruction=this.current_program_listing.getInstructionAt(addr);
-				if (current_instruction!=null)
+				CodeUnit current_codeunit=this.current_program_listing.getCodeUnitAt(addr);
+				Instruction current_instruction=this.current_program_listing.getInstructionAt(addr); //The current address may not be in code, careful
+				if (current_codeunit!=null)
 				{
-					ReferenceIterator ref_iter= current_instruction.getReferenceIteratorTo();
+					ReferenceIterator ref_iter= current_codeunit.getReferenceIteratorTo();
 					while(ref_iter.hasNext())
 					{
 						Reference ref = ref_iter.next();
 						Address newaddr=ref.getFromAddress();
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address Reference to address "+addr));
+						if (this.advancedhookoptionsdialog.isReferencestoAddressCheckBoxchecked)
+						{
+							advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address referencing address "+addr+" , referenceType:"+ref.getReferenceType()));
+						}
+						if (this.advancedhookoptionsdialog.isFunctionsReferencingAddressCheckBoxchecked)
+						{
+							Function newfun=this.current_program.getFunctionManager().getFunctionContaining(newaddr);
+							if (newfun!=null)
+							{
+								advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),true,"Function containing address "+newaddr+" that references to initial address "+addr+" through referenceType:"+ref.getReferenceType()));
+						
+							}	
+						}
 					}					
 				}
 			}
+			
+			if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
+
 			
 			/*References to function*/
 			if (this.advancedhookoptionsdialog.isReferencestoFunctionCheckboxchecked && current_function!=null)
@@ -427,11 +551,13 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 					{
 						Reference ref = ref_iter.next();
 						Address newaddr=ref.getFromAddress();
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address Reference to function at "+current_function.getEntryPoint()+" named "+current_function.getName()+" containing address "+addr));
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newaddr,true,"Address referencing function at "+current_function.getEntryPoint()+" named "+current_function.getName(true)+" containing address "+addr+", through referenceType:"+ref.getReferenceType()));
 					}
 				}
 				
 			}
+			
+			if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 		
 			/*Incoming references, for a certain depth*/
 			if (this.advancedhookoptionsdialog.isFunctionsReferencingFunctionCheckboxchecked && current_function!=null)
@@ -451,16 +577,22 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				arraylist_for_level_i.add(new Container_for_function_references(current_function,-1,-1,0));
 				all_depths_arraylists_of_function_references.add((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone());
 				
+	
 				for (i=1;i<=depth;i++)
 				{
+					this.incoming_monitor.setMessage("Incoming references, level "+i);
+					
 					arraylist_for_level_i=handle_incoming_references_for_one_depth_level((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone(),i);
 					all_depths_arraylists_of_function_references.add((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone());
 					for (j=0;j<arraylist_for_level_i.size();j++)
 					{
 						Function newfun=arraylist_for_level_i.get(j).fun;
 						String reference_path_string=get_incoming_reference_path_string(all_depths_arraylists_of_function_references,i,j);
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Incoming function call reference from function at "+newfun.getEntryPoint()+" named "+newfun.getName()+", to final current function "+current_function.getName()+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Incoming function call reference from function at "+newfun.getEntryPoint()+" named "+newfun.getName(true)+", to final current function "+current_function.getName(true)+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+					
+						if (j%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 					}
+					if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 				}
 				
 			}
@@ -482,21 +614,26 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				ArrayList<Container_for_function_references> arraylist_for_level_i=new ArrayList<Container_for_function_references>();
 				arraylist_for_level_i.add(new Container_for_function_references(current_function,-1,-1,0));
 				all_depths_arraylists_of_function_references.add((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone());
-				
+								
 				for (i=1;i<=depth;i++)
 				{
+					this.incoming_monitor.setMessage("Outgoing calls, level "+i);
 					arraylist_for_level_i=handle_outgoing_references_for_one_depth_level((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone(),i);
 					all_depths_arraylists_of_function_references.add((ArrayList<Container_for_function_references>) arraylist_for_level_i.clone());
 					for (j=0;j<arraylist_for_level_i.size();j++)
 					{
 						Function newfun=arraylist_for_level_i.get(j).fun;
 						String reference_path_string=get_outgoing_reference_path_string(all_depths_arraylists_of_function_references,i,j);
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Outgoing function call reference to function at "+newfun.getEntryPoint()+" named "+newfun.getName()+", from initial current function "+current_function.getName()+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Outgoing function call reference to function at "+newfun.getEntryPoint()+" named "+newfun.getName(true)+", from initial current function "+current_function.getName(true)+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+						
+						if (j%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 					}
+					if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 				}
 				
 			}
 			
+			if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 			
 			
 			
@@ -510,9 +647,11 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				int num_of_addresses_advanced=0;
 				int num_of_instructions_advanced=0;
 				int num_of_functions_advanced=0;
+				int number_of_times_iterated=0;
 				
 				System.out.println("RangeAddressesNum: "+this.advancedhookoptionsdialog.RangeAddressesNum);
 
+				this.incoming_monitor.setMessage("Range for addresses...");
 				
 				CodeUnitIterator code_unit_iterator=this.current_program_listing.getCodeUnits(addr, true);
 
@@ -524,6 +663,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 						Address newaddr=newcodeunit.getAddress();
 						Boolean we_are_at_the_first_byte_of_an_instruction=false;
 						Boolean we_have_reached_the_maxaddress_of_a_function=false;
+						number_of_times_iterated++;
 						
 						/*
 						 * A function may have its MaxAddress on something other than an instruction.
@@ -581,6 +721,14 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 							break;
 						}
 
+						if (number_of_times_iterated%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
+						if (number_of_times_iterated%2000==0) 
+						{
+							//update the "Generating hooks..." dialog
+							if (this.advancedhookoptionsdialog.RangeAddressesRadioButtonAddr.isSelected()) {this.incoming_monitor.setMessage("Range for addresses "+num_of_addresses_advanced+"...");}
+							if (this.advancedhookoptionsdialog.RangeAddressesRadioButtonInstr.isSelected()) {this.incoming_monitor.setMessage("Range for addresses "+num_of_instructions_advanced+"...");}
+							if (this.advancedhookoptionsdialog.RangeAddressesRadioButtonFun.isSelected()) {this.incoming_monitor.setMessage("Range for addresses "+num_of_functions_advanced+"...");}
+						}
 					}
 				}
 			}
@@ -601,6 +749,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				long offset_of_new_fun_start;
 				Boolean we_are_done_for_RangeFunctions=false;
 				
+				this.incoming_monitor.setMessage("Range for functions...");
 				
 				//if we are inside a function, we want to hook that one
 				Function newfun = this.current_program.getFunctionManager().getFunctionContaining(addr);
@@ -630,16 +779,46 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 						break;
 					}
 					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions."));
+				
+					if (num_of_functions_advanced%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
+					if (num_of_functions_advanced%1000==0) {this.incoming_monitor.setMessage("Range for functions "+num_of_functions_advanced+"...");}
+				}
+
+			}
+			
+			/* Function name regex hooking */
+			if (this.advancedhookoptionsdialog.isFunctionRegexCheckBoxchecked)
+			{
+				String regex_for_fun_name=this.advancedhookoptionsdialog.FunctionRegexTextField.getText();
+				Pattern pattern= Pattern.compile(regex_for_fun_name,Pattern.CASE_INSENSITIVE);
+				FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
+				int num_of_functions_processed=0;
+				
+				if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";}
+				this.incoming_monitor.setMessage("Function hooking by regex....");
+				
+				while(fun_iter!=null && fun_iter.hasNext())
+				{
+					Function newfun=fun_iter.next();
+					num_of_functions_processed++;
+					String name_of_newfun=newfun.getName(true);
+					if (pattern.matcher(name_of_newfun).matches())
+					{
+						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(context,newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex:"+regex_for_fun_name));
+					}
+					if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
 				}
 				
-				
+			
 			}
+			
 			
 			if (this.consoleService!=null)
 			{
 				this.consoleService.println("// Hook Generated");
 			}				
 			
+			this.advanced_hook_generation_task.is_hookgen_completed=true;
 			return advanced_hook_str;
 		}
 		
@@ -688,11 +867,11 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				index_of_caller_in_previous_level=tmpcontainer.index_of_source_at_previous_depth;
 				if (tmpdepth>0)
 				{
-					retval="->".concat(tmpfun.getName()).concat(retval);
+					retval="->".concat(tmpfun.getName(true)).concat(retval);
 				}
 				else
 				{
-					retval=tmpfun.getName().concat(retval);
+					retval=tmpfun.getName(true).concat(retval);
 				}
 				tmpdepth--;
 			}
@@ -729,6 +908,43 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			return retval;
 		}
 		
+		
+		protected String backpatch_reasons_for_advanced_hook_generation()
+		{
+			String hook_str="";
+			if (this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
+			{
+				this.maximum_number_of_reasons_to_show=Integer.parseInt(this.advancedhookoptionsdialog.ReasonForHookGenAmountcomboBox.getItemAt(this.advancedhookoptionsdialog.ReasonForHookGenAmountcomboBox.getSelectedIndex()));
+
+				if (this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user)
+				this.incoming_monitor.setMessage("Backpatching reasons in hooks...");
+				/*
+				 * If that is the case, then the hook_str only has the prologue, as every other hook returned the empty string or a comment.
+				 * Now it is time to go through all the hooks in the internal data structures and patch the reasons why they were hooked
+				 */
+				int i;
+				for (i=0;i<this.how_many_addresses_have_been_hooked_so_far_in_this_batch;i++)
+				{
+					Address current_addr =this.addresses_for_which_hook_is_generated_in_order_of_appearance.get(i);
+					String current_hook_for_addr=this.hooks_generated_per_address_in_order_of_appearance.get(i);
+					String reason_str_for_current_hook=this.Addresses_for_current_hook_str.get(current_addr.toString());
+					String formatted_reason_str_for_current_hook=format_reason_for_hooking(reason_str_for_current_hook);
+					hook_str=hook_str.concat(current_hook_for_addr.replace("PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+current_addr,formatted_reason_str_for_current_hook));
+				
+					if (i%100==0 && this.incoming_monitor.isCancelled()) {this.advanced_hook_generation_task.is_cancelled=true; return "";} //check for cancellation by the user
+					if (i%1000==0) {this.incoming_monitor.setMessage("Backpatching reasons in hooks "+(int)((i*100)/how_many_addresses_have_been_hooked_so_far_in_this_batch)+"%...");}
+				}
+			}
+			this.advanced_hook_generation_task.is_backpatching_completed=true;
+			if (this.consoleService!=null)
+			{
+				this.consoleService.println("// Backpatching reasons completed");
+			}
+			
+			return hook_str;
+		}
+		
+		
 
 		//Try to move backwards in the data structure to see the reference path
 		String get_incoming_reference_path_string(ArrayList<ArrayList<Container_for_function_references>> all_depths_arraylists_of_function_references,int depth,int index_of_container_for_that_depth)
@@ -744,11 +960,11 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				index_of_callee_in_previous_level=tmpcontainer.index_of_source_at_previous_depth;
 				if (tmpdepth == depth)
 				{
-					retval=retval.concat(tmpfun.getName());
+					retval=retval.concat(tmpfun.getName(true));
 				}
 				else
 				{
-					retval=retval.concat("->").concat(tmpfun.getName());
+					retval=retval.concat("->").concat(tmpfun.getName(true));
 				}
 				tmpdepth--;
 			}
@@ -756,7 +972,32 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			return retval;
 		}
 		
+		protected Boolean user_options_allow_printing_of_params()
+		{
+			if (this.isAdvanced)
+			{
+				return (!this.advancedhookoptionsdialog.isDoNotIncludeFunParamscheckboxchecked);
+			}
+			return true;
+		}
 		
+		protected void interpret_user_custom_options_on_function_hook_generation()
+		{
+			if (!this.isAdvanced || (this.isAdvanced && !this.advancedhookoptionsdialog.isCustomFunInterceptorHookOutputCheckboxchecked)) 
+			{
+				this.include_onEnter_in_function_hooks=true;
+				this.include_onLeave_in_function_hooks=true;
+				return;
+			}
+			if (this.advancedhookoptionsdialog.CustomFunInterceptorHookOutputcomboBox.getSelectedIndex()==0)
+			{
+				this.include_onEnter_in_function_hooks=false;
+			}
+			if (this.advancedhookoptionsdialog.CustomFunInterceptorHookOutputcomboBox.getSelectedIndex()==1)
+			{
+				this.include_onLeave_in_function_hooks=false;
+			}
+		}
 
 		
 
@@ -821,7 +1062,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			if (we_are_at_start_of_function)
 			{
 
-				current_function_name_sanitized=current_function.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+				current_function_name_sanitized=current_function.getName(true).replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
 				function_name_with_current_addr=current_function_name_sanitized+"_"+addr;
 				int parameter_count=current_function.getParameterCount(); //May not always work, decompiler must commit the params first
 				DataType current_function_returntype=current_function.getReturnType();
@@ -840,32 +1081,47 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 				hook_str=hook_str.concat("      var offset_of_"+function_name_with_current_addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
 								 .concat("      var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
 				
-								 .concat("      Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n")
-								 .concat("                  onEnter: function(args) {\n")
-								 .concat("                      console.log(\"Entered "+function_name_with_current_addr+"\");\n");
-				
-				/* Put the parameters in the hook */
-				if (parameter_count>=1) {
-							   hook_str+="                      console.log('";
-							   for (int i=0;i<parameter_count;i++)
-							   {
-								   hook_str+="args["+i+"]='+args["+i+"]";
-								   if (i<parameter_count-1) { hook_str+="+' , "; }
-								   else { hook_str+=");\n"; }
-							   }
-				}
-				if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
+								 .concat("      Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
+				if (this.include_onEnter_in_function_hooks)
 				{
-					//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-					hook_str=hook_str.concat("                      console.log(\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+					hook_str=hook_str.concat("                  onEnter: function(args) {\n")
+									 .concat("                      console.log(\"Entered "+function_name_with_current_addr+"\");\n");
+					
+					/* Put the parameters in the hook */
+					if (parameter_count>=1 && user_options_allow_printing_of_params()) {
+								   hook_str+="                      console.log('";
+								   for (int i=0;i<parameter_count;i++)
+								   {
+									   hook_str+="args["+i+"]='+args["+i+"]";
+									   if (i<parameter_count-1) { hook_str+="+' , "; }
+									   else { hook_str+=");\n"; }
+								   }
+					}
+					if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
+					{
+						//put the placeholder for the reasons of hooking. This will be replaced when backpatching
+						hook_str=hook_str.concat("                      console.log(\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+					}
+					hook_str=hook_str.concat("                      // this.context.x0=0x1;\n")
+									 .concat("                  }");
 				}
-				hook_str=hook_str.concat("                      // this.context.x0=0x1;\n")
-								 .concat("                  },\n")
-								 .concat("                  onLeave: function(retval) {\n")
-								 .concat("                      console.log(\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
-								 .concat("                      // retval.replace(0x1);\n")
-								 .concat("                  }\n")
-								 .concat("      });\n\n");
+				if (this.include_onEnter_in_function_hooks && this.include_onLeave_in_function_hooks) 
+				{
+					hook_str=hook_str.concat(",\n");
+				}
+				if (this.include_onLeave_in_function_hooks)
+				{
+					hook_str=hook_str.concat("                  onLeave: function(retval) {\n")
+									 .concat("                      console.log(\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
+									 .concat("                      // retval.replace(0x1);\n")
+									 .concat("                  }\n");
+				}
+				else
+				{
+					hook_str=hook_str.concat("\n");
+				}
+				hook_str=hook_str.concat("      });\n\n");
+				
 							
 			}
 			else
@@ -920,7 +1176,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 			String[] individual_reasons=unformatted_reason.split("\\|");
 			int i;
 			String retval="";
-			int max_reasons_to_show=10;
+			int max_reasons_to_show=this.maximum_number_of_reasons_to_show;
 			//starting from 1 as the first is not the reason, but the order of address, that is the increasing counter when it first appeared
 			for (i=1;i<individual_reasons.length;i++)
 			{
