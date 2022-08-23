@@ -68,7 +68,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 	private PluginTool tool;
 	protected Boolean isOKpressed;
-	
+	protected Boolean is_invoked_from_selecting_multiple_addresses;
 	
 	/*Incoming References items*/
 	protected JCheckBox ReferencestoAddressCheckBox;
@@ -85,6 +85,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	protected JCheckBox OutReferencesfromFunctionCheckBox;
 	protected Boolean isOutReferencesfromFunctionCheckBoxchecked;
 	protected JComboBox<String> OutFunctionReferenceDepthcomboBox;
+	protected JCheckBox OutReferencesfromAddressCheckBox;
+	protected Boolean isOutReferencesfromAddressCheckBoxchecked;
 	
 	/*Range items*/
 	protected JCheckBox RangeAddressesCheckBox;
@@ -121,14 +123,18 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	protected JComboBox<String> CustomFunInterceptorHookOutputcomboBox;
 	protected JCheckBox DoNotIncludeFunParamscheckbox;
 	protected Boolean isDoNotIncludeFunParamscheckboxchecked;
+	protected JCheckBox GenerateBacktraceCheckbox;
+	protected Boolean isGenerateBacktraceCheckboxchecked;
+	protected JComboBox<String> GenerateBacktracecomboBox;
 
 	private Program current_program;
 	private Address addr;
 
-	public AdvancedHookOptionsDialog(String title, PluginTool tool) {
+	public AdvancedHookOptionsDialog(String title, PluginTool tool,Boolean is_invoked_from_selecting_multiple_addresses) {
 		super(title, true, true, true, false);
 		this.tool = tool;
 		this.isOKpressed=false;
+		this.is_invoked_from_selecting_multiple_addresses=is_invoked_from_selecting_multiple_addresses;
 		this.isReferencestoAddressCheckBoxchecked=false;
 		this.isFunctionsReferencingAddressCheckBoxchecked=false;
 		this.isReferencestoFunctionCheckboxchecked=false;
@@ -137,21 +143,24 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isRangeAddressesCheckBoxchecked=false;
 		this.isRangeFunctionsCheckBoxchecked=false;
 		this.isOutReferencesfromFunctionCheckBoxchecked=false;
+		this.isOutReferencesfromAddressCheckBoxchecked=false;
 		this.isOutputReasonForHookGenCheckboxchecked=false;
 		this.isCustomFunInterceptorHookOutputCheckboxchecked=false;
 		this.isDoNotIncludeFunParamscheckboxchecked=false;
 		this.isFunctionRegexCheckBoxchecked=false;
-
+		this.isGenerateBacktraceCheckboxchecked=false;
+		
 		addWorkPanel(create());
 		setFocusComponent(ReferencestoAddressCheckBox);
 		addOKButton();
 		addCancelButton();
 		setDefaultButton(okButton);
 	}
+
 	
 
 	/**
-	 * Define the Main panel for the dialog here.
+	 * Define the Main panel for the dialog.
 	 */
 	private JPanel create() {
 
@@ -175,7 +184,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 				"Generate Hooks for functions (statically) called by the current function for a certain depth");
 		String[] outdepths_to_choose_from= {"1","2","3","4","5","6","7","8","9","10"};
 		OutFunctionReferenceDepthcomboBox=new JComboBox<>(outdepths_to_choose_from);
-		
+		OutReferencesfromAddressCheckBox = new GCheckBox("Generate Hook for the addresses (statically) referenced by the current address");
+		OutReferencesfromAddressCheckBox.setToolTipText(
+				"Generate Hook for the addresses (statically) referenced by the current address. Appears only during selection of multiple addresses");
 		
 		
 		RangeAddressesCheckBox = new GCheckBox("Generate Hooks for addresses (starting from current address, and moving forward for X elements) (SLOW)");
@@ -215,22 +226,28 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		CustomFunInterceptorHookOutputCheckbox = new GCheckBox("In case of hook generation for functions:");
 		CustomFunInterceptorHookOutputCheckbox.setToolTipText("This option allows to modify the way the function interceptor hook generation is done");
-		String[] ways_to_alter_function_interceptor_hook= {"Do not include onEnter()","Do not include onLeave()"};
+		String[] ways_to_alter_function_interceptor_hook= {"Do not include onEnter()","Do not include onLeave()","use Interceptor.replace() (EXPERIMENTAL!)"};
 		CustomFunInterceptorHookOutputcomboBox=new JComboBox<>(ways_to_alter_function_interceptor_hook);
 		
 		DoNotIncludeFunParamscheckbox=new GCheckBox("In case of hook generation for functions, do not print their parameters in the console");
 		DoNotIncludeFunParamscheckbox.setToolTipText("In case of hook generation for functions, do not print their parameters in the console");	
 		
+		GenerateBacktraceCheckbox=new GCheckBox("Generate backtrace:");
+		GenerateBacktraceCheckbox.setToolTipText("Generate a backtrace through the methods provided by frida");	
+		String[] ways_to_generate_backtrace= {"Backtracer.ACCURATE at function beginnings","Backtracer.FUZZY at function beginnings","Backtracer.ACCURATE in every hook","Backtracer.FUZZY in every hook"};
+		GenerateBacktracecomboBox=new JComboBox<>(ways_to_generate_backtrace);
+
+		
 		GenerateScriptCheckbox = new GCheckBox("Generate Hook Script and not Snippet, registering interceptors through method ");
 		GenerateScriptCheckbox.setMnemonic('S');
 		GenerateScriptCheckbox.setToolTipText(
 				"Generate Hook Script and not Snippet, that means, add prologue and epilogue");
-		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method (EXPERIMENTAL)"};
+		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method (EXPERIMENTAL)", "LoadLibrary() method (EXPERIMENTAL)"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
 
 		JPanel mainPanel = new JPanel(new VerticalLayout(30));
-		mainPanel.setPreferredSize(new Dimension(750,400));
+		mainPanel.setPreferredSize(new Dimension(750,430));
 		JPanel referencesPanel = new JPanel(new VerticalLayout(4));
 		JPanel referencessubPanel = new JPanel(new HorizontalLayout(4));
 		JPanel outreferencesPanel = new JPanel(new VerticalLayout(4));
@@ -243,6 +260,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		JPanel outputSubPanel1 = new JPanel(new HorizontalLayout(4));
 		JPanel outputSubPanel2 = new JPanel(new HorizontalLayout(4));
 		JPanel outputSubPanel3 = new JPanel(new HorizontalLayout(4));
+		JPanel outputSubPanel4 = new JPanel(new HorizontalLayout(4));
 		
 		TitledBorder referenceBorder =
 			BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "Incoming Reference options");
@@ -277,6 +295,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		outreferencessubPanel.add(OutReferencesfromFunctionCheckBox,BorderLayout.NORTH);
 		outreferencessubPanel.add(OutFunctionReferenceDepthcomboBox,BorderLayout.NORTH);
 		outreferencesPanel.add(outreferencessubPanel);
+		if (is_invoked_from_selecting_multiple_addresses)
+		{
+			outreferencesPanel.add(OutReferencesfromAddressCheckBox);
+		}
 
 		rangePanel.add(RangeAddressesCheckBox);
 		rangeSubPanel1.add(RangeAddressesNumLabel);
@@ -292,21 +314,27 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		//rangeSubPanel2.add(RangeFunctionsRadioButtonInstr);
 		rangeSubPanel2.add(RangeFunctionsRadioButtonFun);
 		rangePanel.add(rangeSubPanel2);
-		rangeSubPanel3.add(FunctionRegexCheckBox);
-		rangeSubPanel3.add(FunctionRegexTextField);
-		rangePanel.add(rangeSubPanel3);
+		if (!is_invoked_from_selecting_multiple_addresses)
+		{
+			rangeSubPanel3.add(FunctionRegexCheckBox);
+			rangeSubPanel3.add(FunctionRegexTextField);
+			rangePanel.add(rangeSubPanel3);
+		}
 		
 		outputSubPanel1.add(OutputReasonForHookGenCheckbox);
 		outputSubPanel1.add(ReasonForHookGenAmountcomboBox);
 		outputSubPanel2.add(CustomFunInterceptorHookOutputCheckbox);
 		outputSubPanel2.add(CustomFunInterceptorHookOutputcomboBox);
-		outputSubPanel3.add(GenerateScriptCheckbox);
-		outputSubPanel3.add(TypeofScriptGenerationcomboBox);
+		outputSubPanel3.add(GenerateBacktraceCheckbox);
+		outputSubPanel3.add(GenerateBacktracecomboBox);
+		outputSubPanel4.add(GenerateScriptCheckbox);
+		outputSubPanel4.add(TypeofScriptGenerationcomboBox);
 		outputPanel.add(outputSubPanel1,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel2,BorderLayout.NORTH);
-		outputPanel.add(DoNotIncludeFunParamscheckbox,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel3,BorderLayout.NORTH);
-
+		outputPanel.add(DoNotIncludeFunParamscheckbox,BorderLayout.NORTH);
+		outputPanel.add(outputSubPanel4,BorderLayout.NORTH);
+		
 		mainPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 
 		return mainPanel;
@@ -330,11 +358,20 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.addr = address;
 		this.current_program = p;
 
-		setTitle("Create advanced Frida Hook regarding address " + address);
+		if (!is_invoked_from_selecting_multiple_addresses)
+		{
+			setTitle("Create advanced Frida Hook regarding address " + address);
+		}
+		else
+		{
+			//address will be null in this case
+			setTitle("Generate advanced Frida Hooks for selection");
+		}
 		ReferencestoAddressCheckBox.setEnabled(true);
 		FunctionsReferencingAddressCheckBox.setEnabled(true);
 		ReferencestoFunctionCheckbox.setEnabled(true);
 		OutReferencesfromFunctionCheckBox.setEnabled(true);
+		OutReferencesfromAddressCheckBox.setEnabled(true);
 		FunctionsReferencingFunctionCheckbox.setEnabled(true);
 		GenerateScriptCheckbox.setEnabled(true);
 		GenerateScriptCheckbox.setSelected(false);
@@ -344,6 +381,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		CustomFunInterceptorHookOutputCheckbox.setEnabled(true);
 		DoNotIncludeFunParamscheckbox.setEnabled(true);
 		FunctionRegexCheckBox.setEnabled(true);
+		GenerateBacktraceCheckbox.setEnabled(true);
 		
 
 		clearStatusText();
@@ -371,6 +409,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		if (OutReferencesfromFunctionCheckBox.isEnabled() && OutReferencesfromFunctionCheckBox.isSelected()) {
 			this.isOutReferencesfromFunctionCheckBoxchecked=true;
+		}
+		
+		if (OutReferencesfromAddressCheckBox.isEnabled() && OutReferencesfromAddressCheckBox.isSelected()) {
+			this.isOutReferencesfromAddressCheckBoxchecked=true;
 		}
 		
 		if (GenerateScriptCheckbox.isEnabled() && GenerateScriptCheckbox.isSelected()) {
@@ -450,8 +492,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		if (DoNotIncludeFunParamscheckbox.isEnabled() && DoNotIncludeFunParamscheckbox.isSelected()) {
 			this.isDoNotIncludeFunParamscheckboxchecked=true;
 		}
-		
-		
+		if (GenerateBacktraceCheckbox.isEnabled() && GenerateBacktraceCheckbox.isSelected()) {
+			this.isGenerateBacktraceCheckboxchecked=true;
+		}
+				
 		
 		close();
 	}
