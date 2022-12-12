@@ -81,8 +81,8 @@ import ghidra.program.util.ProgramLocation;
 	status = PluginStatus.STABLE,
 	packageName = "Frida Hook Generator",
 	category = PluginCategoryNames.MISC,
-	shortDescription = "This plugin generates a frida hook for a specified address.",
-	description = "This plugin generates a frida hook for a specified address in the binary, which can be run through frida, and report when the code reaches that point. When the address is the start of a function, the plugin generates a hook with Interceptor's onEnter()/onLeave() calls. When the code is not at the start of the function, the plugin generates hooks without these calls."
+	shortDescription = "This plugin provides right-click options for fast generation of Frida hooks",
+	description = "This plugin generates a right-click options for fast generation of Frida hook code, for specified addresses in the binary. That (Javascript) code can be run through Frida, and at the very least it will report when the code reaches the specified points. When the hooked address is the start of a function, the plugin generates a hook with Interceptor's onEnter()/onLeave() calls. When the code is not at the start of the function, the plugin generates hooks without these calls."
 	//servicesRequired = { ConsoleService.class}
 )
 //@formatter:on
@@ -91,7 +91,9 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 	GenerateFridaHookScriptAction FridaHookScriptAction;
 	GenerateFridaHookScriptAction FridaHookSnippetAction;
 	GenerateFridaHookScriptAction FridaHookAdvancedAction;
-
+	Selection_hook_generationAction SearchSelectionAction;
+	StructAccessCodeGenerationAction StructAccessAction;
+	
 	/**
 	 * Plugin constructor.
 	 * 
@@ -125,8 +127,12 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		FridaHookScriptAction.setHelpLocation(new HelpLocation(topicName, anchorName));
 		
 		/*Now add the plugin part which allows for hook generation based on a selection*/
-		Selection_hook_generationAction searchselectionAction=new Selection_hook_generationAction(this,this.getProgramSelection());
-		tool.addAction(searchselectionAction);
+		SearchSelectionAction=new Selection_hook_generationAction(this,this.getProgramSelection());
+		tool.addAction(SearchSelectionAction);
+		
+		/*And the plugin part which allows for generation of code for struct getters and setters*/
+		StructAccessAction=new StructAccessCodeGenerationAction(this);
+		tool.addAction(StructAccessAction);
 				
 	}
 

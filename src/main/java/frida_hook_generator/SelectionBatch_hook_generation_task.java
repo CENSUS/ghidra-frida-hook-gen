@@ -129,6 +129,10 @@ public class SelectionBatch_hook_generation_task extends Task {
 				return;
 			}
 			hook_str=hook_str.concat(hook_generator.final_hook_str); //If not, append the output
+			if (i%400==0)
+			{
+				System.out.println("Completed "+i+"/"+code_units_to_try_to_hook_into.size()+" code units");
+			}
 		}
 
 		if (monitor.isCancelled())

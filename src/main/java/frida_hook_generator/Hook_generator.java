@@ -32,6 +32,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -41,9 +42,11 @@ import ghidra.app.context.ListingActionContext;
 import ghidra.app.services.ConsoleService;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressIterator;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.Processor;
+import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitIterator;
 import ghidra.program.model.listing.Function;
@@ -51,6 +54,7 @@ import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.program.util.OperandFieldLocation;
@@ -168,20 +172,34 @@ public class Hook_generator {
 		//handle the simple right click case
 		if (!this.isAdvanced)
 		{
-			hook_str=hook_str.concat(handle_simple_right_click_hook_generation(addr,true));
+			handle_simple_right_click_hook_generation(addr,true);
 		}
 		//handle all Advanced cases
 		if (this.isAdvanced)
 		{
-			hook_str=hook_str.concat(handle_advanced_hook_generation(addr,false));
-			if (this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked && this.we_are_in_the_final_hook_of_the_batch)
+			handle_advanced_hook_generation(addr,false);
+		}
+		
+		if (this.we_are_in_the_final_hook_of_the_batch && !this.incoming_monitor.isCancelled())
+		{
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
-				hook_str=hook_str.concat(backpatch_reasons_for_advanced_hook_generation());
+				backpatch_reasons_for_advanced_hook_generation(); //this will update the reasons in the individual hooks
+			}
+			if (this.isAdvanced && !this.incoming_monitor.isCancelled() && is_there_a_chance_that_some_hooks_generated_in_the_current_batch_require_code_that_is_later_added_in_the_hook())
+			{
+				backpatch_hooks_that_need_code_to_be_added_at_a_later_stage(); //this will update the hooks that may need further additions to their code. Note: This should happen in any case that there is a chance that one address had such a hook, as placeholders will have been put. In other words, if any of the related advanced options is selected, call this function
+			}
+			if (!this.incoming_monitor.isCancelled())
+			{
+				hook_str=hook_str.concat(gather_all_generated_hooks());
 			}
 		}
+		
+		
 
 		//Now, the epilogue
-		if (!this.isSnippet && this.we_are_in_the_final_hook_of_the_batch)
+		if (!this.isSnippet && this.we_are_in_the_final_hook_of_the_batch && !this.incoming_monitor.isCancelled())
 		{
 			hook_str+=generate_epilogue_for_address(addr,true);
 		}
@@ -397,7 +415,7 @@ public class Hook_generator {
 
 	protected void handle_output(String hook_str)
 	{
-		if (this.isAdvanced && this.incoming_monitor!=null && this.incoming_monitor.isCancelled() )
+		if (this.incoming_monitor!=null && this.incoming_monitor.isCancelled() )
 		{
 			//This is the case where the user has manually cancelled
 			hook_str="// User has cancelled\n";
@@ -410,22 +428,20 @@ public class Hook_generator {
 	
 	
 	
-	protected String handle_simple_right_click_hook_generation(Address addr, Boolean print_debug)
+	protected void handle_simple_right_click_hook_generation(Address addr, Boolean print_debug)
 	{
-		return generate_snippet_hook_for_address(addr,print_debug,"Simple Right Click");
+		generate_snippet_hook_for_address(addr,print_debug,"Simple Right Click");
 	}
 	
 	
 	
 	
 	/* This is a big and complex function, handling all sub-cases for the advanced hook generation*/
-	protected String handle_advanced_hook_generation(Address addr, Boolean print_debug)
+	protected void handle_advanced_hook_generation(Address addr, Boolean print_debug)
 	{
 		Function current_function = this.current_program.getFunctionManager().getFunctionContaining(addr);
-		String advanced_hook_str="";
-		
 
-		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+		if (this.incoming_monitor.isCancelled()) {return ;} //check for cancellation by the user
 		this.incoming_monitor.setMessage("Generating Hooks...");
 		
 		
@@ -443,14 +459,14 @@ public class Hook_generator {
 					Address newaddr=ref.getFromAddress();
 					if (this.advancedhookoptionsdialog.isReferencestoAddressCheckBoxchecked)
 					{
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newaddr,true,"Address referencing address "+addr+" , referenceType:"+ref.getReferenceType()));
+						generate_snippet_hook_for_address(newaddr,true,"Address referencing address "+addr+" , referenceType:"+ref.getReferenceType());
 					}
 					if (this.advancedhookoptionsdialog.isFunctionsReferencingAddressCheckBoxchecked)
 					{
 						Function newfun=this.current_program.getFunctionManager().getFunctionContaining(newaddr);
 						if (newfun!=null)
 						{
-							advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),true,"Function containing address "+newaddr+" that references to initial address "+addr+" through referenceType:"+ref.getReferenceType()));
+							generate_snippet_hook_for_address(newfun.getEntryPoint(),true,"Function containing address "+newaddr+" that references to initial address "+addr+" through referenceType:"+ref.getReferenceType());
 					
 						}	
 					}
@@ -458,7 +474,7 @@ public class Hook_generator {
 			}
 		}
 		
-		if (this.incoming_monitor.isCancelled()) { return "";} //check for cancellation by the user
+		if (this.incoming_monitor.isCancelled()) { return;} //check for cancellation by the user
 
 		
 		/*References to function*/
@@ -473,13 +489,13 @@ public class Hook_generator {
 				{
 					Reference ref = ref_iter.next();
 					Address newaddr=ref.getFromAddress();
-					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newaddr,true,"Address referencing function at "+current_function.getEntryPoint()+" named "+current_function.getName(true)+" containing address "+addr+", through referenceType:"+ref.getReferenceType()));
+					generate_snippet_hook_for_address(newaddr,true,"Address referencing function at "+current_function.getEntryPoint()+" named "+current_function.getName(true).replace("\"", "_")+" containing address "+addr+", through referenceType:"+ref.getReferenceType());
 				}
 			}
 			
 		}
 		
-		if (this.incoming_monitor.isCancelled()) { return "";} //check for cancellation by the user
+		if (this.incoming_monitor.isCancelled()) { return;} //check for cancellation by the user
 	
 		/*Incoming references, for a certain depth*/
 		if (this.advancedhookoptionsdialog.isFunctionsReferencingFunctionCheckboxchecked && current_function!=null)
@@ -510,11 +526,11 @@ public class Hook_generator {
 				{
 					Function newfun=arraylist_for_level_i.get(j).fun;
 					String reference_path_string=get_incoming_reference_path_string(all_depths_arraylists_of_function_references,i,j);
-					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Incoming function call reference from function at "+newfun.getEntryPoint()+" named "+newfun.getName(true)+", to final current function "+current_function.getName(true)+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+					generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Incoming function call reference from function at "+newfun.getEntryPoint()+" named "+newfun.getName(true).replace("\"", "_")+", to final current function "+current_function.getName(true).replace("\"", "_")+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string);
 				
-					if (j%100==0 && this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+					if (j%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 				}
-				if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+				if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
 			
 		}
@@ -546,16 +562,16 @@ public class Hook_generator {
 				{
 					Function newfun=arraylist_for_level_i.get(j).fun;
 					String reference_path_string=get_outgoing_reference_path_string(all_depths_arraylists_of_function_references,i,j);
-					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Outgoing function call reference to function at "+newfun.getEntryPoint()+" named "+newfun.getName(true)+", from initial current function "+current_function.getName(true)+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string));
+					generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Outgoing function call reference to function at "+newfun.getEntryPoint()+" named "+newfun.getName(true).replace("\"", "_")+", from initial current function "+current_function.getName(true).replace("\"", "_")+" containing address "+addr+", after call depth="+i+", using call path:"+reference_path_string);
 					
-					if (j%100==0 && this.incoming_monitor.isCancelled()) { return "";} //check for cancellation by the user
+					if (j%100==0 && this.incoming_monitor.isCancelled()) { return;} //check for cancellation by the user
 				}
-				if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+				if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
 			
 		}
 		
-		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 		
 		
 		if (this.advancedhookoptionsdialog.isOutReferencesfromAddressCheckBoxchecked)
@@ -569,14 +585,48 @@ public class Hook_generator {
 				{
 					Reference ref = references[i];
 					Address newaddr=ref.getToAddress();
-					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newaddr,true,"Address referenced from address "+addr+" , referenceType:"+ref.getReferenceType()));
+					generate_snippet_hook_for_address(newaddr,true,"Address referenced from address "+addr+" , referenceType:"+ref.getReferenceType());
 				}					
 			}
 		}
 		
-		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+		
+		if (this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromFunctionCheckBoxchecked && current_function!=null && is_there_a_chance_that_some_hooks_generated_in_the_current_batch_require_code_that_is_later_added_in_the_hook())
+		{
+			this.incoming_monitor.setMessage("Dynamic calls for function...");
+			AddressIterator all_addresses_in_this_function=current_function.getBody().getAddresses(true);
+			int addresses_processed=0;
+			
+			while (all_addresses_in_this_function.hasNext())
+			{
+				Address newaddr=all_addresses_in_this_function.next();
+				Instruction newinstr=this.current_program_listing.getInstructionAt(newaddr);
+				String reason_for_hook="Address "+newaddr+" containing a dynamic (computed) call/jump";
+				if (newinstr!=null && does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later(newinstr,reason_for_hook))
+				{	
+					generate_snippet_hook_for_address(newaddr,true,reason_for_hook);		//Careful: This particular reason is used to check if internal data structures should be updated. If changed, update the  update_internal_data_structures()/does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later() function		
+				}
+				
+				if (addresses_processed%200==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+				addresses_processed++;
+			}
+
+		}
+		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 		
 		
+		/*Hook this address checkbox*/
+		if (this.advancedhookoptionsdialog.isHookThisAddressCheckBoxchecked)
+		{
+			this.incoming_monitor.setMessage("Hooking this address...");
+			
+			generate_snippet_hook_for_address(addr,true,"Asked to hook the current (selected) address, which was used to spawn the dialog");
+		}
+		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+
 		
 		/* Range hooking, for addresses */
 		// TODO: see if this can be done faster, perhaps by iterating over instructions only. Careful with the function endings
@@ -590,7 +640,10 @@ public class Hook_generator {
 			int num_of_functions_advanced=0;
 			int number_of_times_iterated=0;
 			
-			System.out.println("RangeAddressesNum: "+this.advancedhookoptionsdialog.RangeAddressesNum);
+			if (print_debug)
+			{
+				System.out.println("RangeAddressesNum: "+this.advancedhookoptionsdialog.RangeAddressesNum);
+			}
 
 			this.incoming_monitor.setMessage("Range for addresses...");
 			
@@ -649,7 +702,7 @@ public class Hook_generator {
 					if (we_are_at_the_first_byte_of_an_instruction)
 					{
 						//We can only hook instructions at their first byte
-						advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newaddr,false,"Address hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_instructions_advanced+" instructions, "+num_of_functions_advanced+" functions."));
+						generate_snippet_hook_for_address(newaddr,false,"Address hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_instructions_advanced+" instructions, "+num_of_functions_advanced+" functions.");
 					}
 					
 					/*Now, the check is for >= , as both the instructions and the functions will always increase one by one*/
@@ -662,7 +715,7 @@ public class Hook_generator {
 						break;
 					}
 
-					if (number_of_times_iterated%100==0 && this.incoming_monitor.isCancelled()) { return "";} //check for cancellation by the user
+					if (number_of_times_iterated%100==0 && this.incoming_monitor.isCancelled()) { return;} //check for cancellation by the user
 					if (number_of_times_iterated%2000==0) 
 					{
 						//update the "Generating hooks..." dialog
@@ -675,8 +728,8 @@ public class Hook_generator {
 		}
 		
 		
-		/* Range hooking, for functions */
-		if (this.advancedhookoptionsdialog.isRangeFunctionsCheckBoxchecked && this.advancedhookoptionsdialog.RangeFunctionsNum>0)
+		/* Range hooking, for functions, only forward */
+		if (this.advancedhookoptionsdialog.isRangeFunctionsCheckBoxchecked && this.advancedhookoptionsdialog.RangeFunctionsNum>0 && !this.advancedhookoptionsdialog.RangeFunctionsRadioButtonFunBackwards.isSelected())
 		{
 			//get all functions starting from this address
 			FunctionIterator fun_iter=this.current_program_listing.getFunctions(addr, true);
@@ -697,9 +750,13 @@ public class Hook_generator {
 			
 			if (newfun!=null)
 			{
-				advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions."));
+				generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions.");
 				num_of_functions_advanced++; //in this case, 1 function means -> hook the present one
-
+				if (newfun.getEntryPoint().equals(addr))
+				{
+					//consume the first of the iterator if we are at the start of the first function.
+					if (fun_iter.hasNext()) {fun_iter.next();};
+				}
 			}
 			
 			while (!we_are_done_for_RangeFunctions && fun_iter.hasNext())
@@ -719,13 +776,65 @@ public class Hook_generator {
 					we_are_done_for_RangeFunctions=true;
 					break;
 				}
-				advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions."));
+				generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+". Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions.");
 			
-				if (num_of_functions_advanced%100==0 && this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+				if (num_of_functions_advanced%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 				if (num_of_functions_advanced%1000==0) {this.incoming_monitor.setMessage("Range for functions "+num_of_functions_advanced+"...");}
 			}
 
 		}
+		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+
+		
+		/* Range hooking, for functions, only backwards */
+		if (this.advancedhookoptionsdialog.isRangeFunctionsCheckBoxchecked && this.advancedhookoptionsdialog.RangeFunctionsNum>0 && this.advancedhookoptionsdialog.RangeFunctionsRadioButtonFunBackwards.isSelected())
+		{
+			//get all functions starting from this address, going backwards
+			FunctionIterator fun_iter=this.current_program_listing.getFunctions(addr, false);
+			long initial_addr_offset=addr.getOffset();
+			long curraddr_offset=initial_addr_offset;
+			int num_of_addresses_advanced=0;
+			int num_of_functions_advanced=0;
+			long offset_of_new_fun_end;
+			long offset_of_new_fun_start;
+			Boolean we_are_done_for_RangeFunctions=false;
+			
+			this.incoming_monitor.setMessage("Range for functions (backwards)...");
+			
+			//if we are inside a function, we want to hook that one
+			Function newfun = this.current_program.getFunctionManager().getFunctionContaining(addr);
+			
+			if (newfun!=null)
+			{
+				generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+" going backwards. Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions.");
+				num_of_functions_advanced++; //in this case, 1 function means -> hook the present one
+				//consume the first of the iterator, since when we are in a function, the first of the backwards iterator will give the function itself
+				if (fun_iter.hasNext()) {fun_iter.next();};
+			}
+			
+			while (!we_are_done_for_RangeFunctions && fun_iter.hasNext())
+			{
+				newfun=fun_iter.next();
+				offset_of_new_fun_end=newfun.getBody().getMaxAddress().getOffset();
+				offset_of_new_fun_start=newfun.getEntryPoint().getOffset();
+				num_of_addresses_advanced=(int) (initial_addr_offset-offset_of_new_fun_start);
+				num_of_functions_advanced++;
+
+				if ( num_of_functions_advanced>this.advancedhookoptionsdialog.RangeFunctionsNum)
+				{
+					we_are_done_for_RangeFunctions=true;
+					break;
+				}
+				generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook in range of initial address "+addr+" going backwards. Offset from that: "+num_of_addresses_advanced+" addresses, "+num_of_functions_advanced+" functions.");
+			
+				if (num_of_functions_advanced%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+				if (num_of_functions_advanced%1000==0) {this.incoming_monitor.setMessage("Range for functions (backwards) "+num_of_functions_advanced+"...");}
+			}
+		}
+	
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+
 		
 		/* Function name regex hooking */
 		if (this.advancedhookoptionsdialog.isFunctionRegexCheckBoxchecked)
@@ -735,25 +844,24 @@ public class Hook_generator {
 			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
 			int num_of_functions_processed=0;
 			
-			if (this.incoming_monitor.isCancelled()) {return "";}
+			if (this.incoming_monitor.isCancelled()) {return;}
 			this.incoming_monitor.setMessage("Function hooking by regex....");
 			
 			while(fun_iter!=null && fun_iter.hasNext())
 			{
 				Function newfun=fun_iter.next();
 				num_of_functions_processed++;
-				String name_of_newfun=newfun.getName(true);
+				String name_of_newfun=newfun.getName(true).replace("\"", "_");
 				if (pattern.matcher(name_of_newfun).matches())
 				{
-					advanced_hook_str=advanced_hook_str.concat(generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex:"+regex_for_fun_name));
+					generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex:"+regex_for_fun_name);
 				}
-				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
 			
 		
 		}
 
-		return advanced_hook_str;
 	}
 	
 	
@@ -801,11 +909,11 @@ public class Hook_generator {
 			index_of_caller_in_previous_level=tmpcontainer.index_of_source_at_previous_depth;
 			if (tmpdepth>0)
 			{
-				retval="->".concat(tmpfun.getName(true)).concat(retval);
+				retval="->".concat(tmpfun.getName(true).replace("\"", "_")).concat(retval);
 			}
 			else
 			{
-				retval=tmpfun.getName(true).concat(retval);
+				retval=tmpfun.getName(true).replace("\"", "_").concat(retval);
 			}
 			tmpdepth--;
 		}
@@ -843,14 +951,105 @@ public class Hook_generator {
 	}
 	
 	
-	protected String backpatch_reasons_for_advanced_hook_generation()
+	
+	
+	
+	protected String gather_all_generated_hooks()
 	{
 		String hook_str="";
+		StringBuffer sb=new StringBuffer(10000000); //Much faster than simple string concatenation when doing it for many strings
+		
+		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user)
+		this.incoming_monitor.setMessage("Gathering all generated hooks in one...");
+		
+		int i;
+		for (i=0;i<this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch;i++)
+		{
+			sb.append(this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.get(i));
+			if (this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.containsKey(i))
+			{
+				sb.append(this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.get(i));
+			}
+			
+			if (i%100==0 && this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+			if (i%1000==0) {this.incoming_monitor.setMessage("Gathering all generated hooks in one "+(int)((i*100)/this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"%...");}
+
+		}
+		/*Careful: There might be Messages_to_be_included_between_hooks after the last legitimate hook, which will have maxed out index*/
+		if (this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.containsKey(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch))
+		{
+			sb.append(this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.get(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch));
+		}
+	
+		hook_str=sb.toString();
+		if (this.consoleService!=null)
+		{
+			this.consoleService.println("// Gathering generated hooks completed, outputting to the user...");
+		}
+		this.incoming_monitor.setMessage("Outputting to the user...");
+		return hook_str;
+	}
+	
+	/*This function, effectively adds the code*/
+	protected void backpatch_hooks_that_need_code_to_be_added_at_a_later_stage()
+	{
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user)
+		this.incoming_monitor.setMessage("Backpatching hooks that need more code...");
+		
+		int i;
+		for (i=0;i<this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch;i++)
+		{
+			Address newaddr=this.internal_structures_for_hook_generation.addresses_for_which_hook_is_generated_in_order_of_appearance.get(i);
+			if (this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.containsKey(newaddr))
+			{
+				
+				
+				Instruction newinstr=this.current_program_listing.getInstructionAt(newaddr);
+				//newinstr will necessarily be not null, as a hook is supposed to be generated for it
+				String current_hook_for_addr=this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.get(i);
+				String hook_to_replace_later_code_placeholder="";
+				
+				for (String reason: this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.get(newaddr).keySet())
+				{
+					if (reason=="Computed Call/Jump")
+					{
+						String options_for_computed_call_or_jump = this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.get(newaddr).get(reason);
+						String spaces="";
+						if (options_for_computed_call_or_jump=="simple instruction")
+						{
+							spaces="          ";
+						}
+						else
+						{
+							//options_for_computed_call_or_jump=="start of function"
+							spaces="                      ";
+						}
+						String arg_of_call=newinstr.toString().split(" ",2)[1].toLowerCase().trim();  //remove of CALL/BLR... and get the rest, the argument
+						String mnemonic_of_command=newinstr.getMnemonicString().toLowerCase().trim();
+						ComputedCallHookGenerator hookgenerator=new ComputedCallHookGenerator(this.current_program,newaddr,mnemonic_of_command,arg_of_call,"module_name_"+this.current_program_name_sanitized);
+						hook_to_replace_later_code_placeholder=hook_to_replace_later_code_placeholder.concat(hookgenerator.provide_hook_code(spaces));
+					}
+					//Other possible reasons can go here
+				}
+
+				this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.set(i,current_hook_for_addr.replace("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+newaddr,hook_to_replace_later_code_placeholder));
+				
+				
+				if (i%100==0 && this.incoming_monitor.isCancelled()) {return ;} //check for cancellation by the user
+				if (i%1000==0) {this.incoming_monitor.setMessage("Backpatching hooks that need more code "+(int)((i*100)/this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"%...");}
+			}
+		}
+				
+	}
+	
+	
+	protected void backpatch_reasons_for_advanced_hook_generation()
+	{
 		if (this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 		{
 			this.maximum_number_of_reasons_to_show=Integer.parseInt(this.advancedhookoptionsdialog.ReasonForHookGenAmountcomboBox.getItemAt(this.advancedhookoptionsdialog.ReasonForHookGenAmountcomboBox.getSelectedIndex()));
 
-			if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user)
+			if (this.incoming_monitor.isCancelled()) {return ;} //check for cancellation by the user)
 			this.incoming_monitor.setMessage("Backpatching reasons in hooks...");
 			/*
 			 * If that is the case, then the hook_str only has the prologue, as every other hook returned the empty string or a comment.
@@ -863,9 +1062,9 @@ public class Hook_generator {
 				String current_hook_for_addr=this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.get(i);
 				String reason_str_for_current_hook=this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.get(current_addr.toString());
 				String formatted_reason_str_for_current_hook=format_reason_for_hooking(reason_str_for_current_hook);
-				hook_str=hook_str.concat(current_hook_for_addr.replace("PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+current_addr,formatted_reason_str_for_current_hook));
+				this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.set(i,current_hook_for_addr.replace("PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+current_addr,formatted_reason_str_for_current_hook));
 			
-				if (i%100==0 && this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user
+				if (i%100==0 && this.incoming_monitor.isCancelled()) {return ;} //check for cancellation by the user
 				if (i%1000==0) {this.incoming_monitor.setMessage("Backpatching reasons in hooks "+(int)((i*100)/this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"%...");}
 			}
 		}
@@ -873,8 +1072,6 @@ public class Hook_generator {
 		{
 			this.consoleService.println("// Backpatching reasons completed");
 		}
-		
-		return hook_str;
 	}
 	
 	
@@ -893,11 +1090,11 @@ public class Hook_generator {
 			index_of_callee_in_previous_level=tmpcontainer.index_of_source_at_previous_depth;
 			if (tmpdepth == depth)
 			{
-				retval=retval.concat(tmpfun.getName(true));
+				retval=retval.concat(tmpfun.getName(true).replace("\"", "_"));
 			}
 			else
 			{
-				retval=retval.concat("->").concat(tmpfun.getName(true));
+				retval=retval.concat("->").concat(tmpfun.getName(true).replace("\"", "_"));
 			}
 			tmpdepth--;
 		}
@@ -966,6 +1163,14 @@ public class Hook_generator {
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
 				hook_str=hook_str.concat(generate_backtrace_for_hook(true));
+			}
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
+			{
+				hook_str=hook_str.concat("                      "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+			}
+			if (this.isAdvanced && can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
+			{
+				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
 			}
 			hook_str=hook_str.concat("                      // this.context.x0=0x1;\n")
 							 .concat("                  }");
@@ -1087,6 +1292,14 @@ public class Hook_generator {
 		{
 			hook_str=hook_str.concat(generate_backtrace_for_hook(true));
 		}
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
+		{
+			hook_str=hook_str.concat("                      "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+		}
+		if (this.isAdvanced && can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
+		{
+			hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+		}
 		//call the original function
 		hook_str=hook_str.concat("                      var retval=NativeFunction_of_"+function_name_with_current_addr+"("+str_for_params_in_nativecallback+");\n");
 		if (current_function.getReturnType().toString()!="void")
@@ -1198,21 +1411,28 @@ public class Hook_generator {
 	
 	
 	
-	protected String generate_snippet_hook_for_address( Address addr, Boolean print_debug, String reason_for_hook_generation) {
+	/*This function generates the snippet hook, and stores it into the internal data structures*/
+	protected void generate_snippet_hook_for_address( Address addr, Boolean print_debug, String reason_for_hook_generation) {
 		
 		if (this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.containsKey(addr.toString()))
 		{
-			//Just update the hashmap to reflect that another reason was added for the address to be hooked
+			//Update the hashmap to reflect that another reason was added for the address to be hooked
 			String tmpstr=this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.get(addr.toString());
 			this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(addr.toString(),tmpstr.concat("|").concat(reason_for_hook_generation));
-			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
+			
+			//Set the intermediate message for this index
+			if(this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.containsKey(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch))
 			{
-				return ""; //In the special case where the reasoning must be printed, return nothing. The hook will be generated all at once at the end, with the reason backpatching
+				String previous_contents= this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.get(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch);
+				this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.put(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch, 
+																										previous_contents+" //Address:"+addr+", already registered interceptor for that address\n");
 			}
 			else
 			{
-				return (" //Address:"+addr+", already registered interceptor for that address\n");
+				this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.put(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch, 
+						" //Address:"+addr+", already registered interceptor for that address\n");
 			}
+			return;
 		}
 		
 		//Try to recalculate some parameters
@@ -1224,14 +1444,7 @@ public class Hook_generator {
 			//The data structures should be updated
 			String in_place_of_hook=" //Address:"+addr+", not an instruction\n";
 			update_internal_data_structures(addr,in_place_of_hook,"not an instruction");
-			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
-			{
-				return ""; //In the special case where the reasoning must be printed, return nothing. The hook will be generated all at once at the end, with the reason backpatching
-			}
-			else
-			{
-				return (in_place_of_hook);
-			}
+			return;
 		}
 
 		
@@ -1322,6 +1535,14 @@ public class Hook_generator {
 			{
 				hook_str=hook_str.concat(generate_backtrace_for_hook(false));
 			}
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
+			{
+				hook_str=hook_str.concat("          "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+			}
+			if (this.isAdvanced && can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
+			{
+				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+			}
 			hook_str=hook_str.concat("          //this.context.x0=0x1;\n")
 							 .concat("      }\n")
 
@@ -1329,31 +1550,128 @@ public class Hook_generator {
 
 		}
 		
-
 		update_internal_data_structures(addr,hook_str,reason_for_hook_generation);
-		if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
-		{
-			return ""; //In the special case where the reasoning must be printed, return nothing. The hook will be generated all at once at the end, with the reason backpatching
-		}
-		else
-		{
-			//the normal case
-			return hook_str;
-		}
-		
 		
 	}
 	
 	
+	/* This function tries to predict, whether there might be a future reason for hooking the current address, for which special treatment (code that may later be needed to be added) is required.
+	 * For example, if the current address is about a dynamic call instruction, then maybe, a later hook for the same address is asked to print the where the code will go.
+	 * As the hook string is generated only once, that string will have to put a placeholder for the code that does the "special treatment". 
+	 * This function only checks whether there is any chance that the current instruction may need a "special treatment" by iterating over all the implemented reasons for "special treatment", and checking if they may apply.
+	 */
+	protected Boolean can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(Address addr)
+	{
+		if (this.isAdvanced && (this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromFunctionCheckBoxchecked || this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromAddressCheckBoxchecked))
+		{
+			Instruction current_instruction=this.current_program_listing.getInstructionAt(addr);
+			if (current_instruction!=null && current_instruction.getFlowType().isComputed())// && current_instruction.getFlowType().isCall()) //Uncomment to restrict selection to computed hooks, do the same below
+			{	
+				String current_instruction_str_lowercase=current_instruction.toString().toLowerCase().trim();
+				String current_instruction_mnemonic=current_instruction.getMnemonicString().toLowerCase().trim();
+				if (this.current_program_language.getLanguageID().toString().indexOf("x86:LE:64")>=0 && 
+						(current_instruction_mnemonic.equals("call") || current_instruction_mnemonic.equals("jmp"))
+					)
+				{
+					return true;
+				}
+				
+				if (this.current_program_language.getLanguageID().toString().indexOf("AARCH64:LE:64")>=0 && 
+						(current_instruction_mnemonic.equals("blr") || current_instruction_mnemonic.equals("bx") ||
+						 current_instruction_mnemonic.equals("br") || current_instruction_mnemonic.equals("blraaz") ||
+						 current_instruction_mnemonic.equals("blrabz") )
+					)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
+	protected Boolean is_there_a_chance_that_some_hooks_generated_in_the_current_batch_require_code_that_is_later_added_in_the_hook()
+	{
+		if (this.isAdvanced && (this.current_program_language.getLanguageID().toString().indexOf("x86:LE:64")>=0 || this.current_program_language.getLanguageID().toString().indexOf("AARCH64:LE:64")>=0) && 
+				(this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromAddressCheckBoxchecked || this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromFunctionCheckBoxchecked))
+		{
+			return true;
+		}
+		return false;
+	}
+		
+	protected Boolean does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later(Instruction current_instruction,String reason_for_hook_generation)
+	{
+		if (this.isAdvanced && current_instruction!=null && current_instruction.getFlowType().isComputed())// && current_instruction.getFlowType().isCall()) //Uncomment to restrict selection to computed hooks, do the same above
+		{
+			if (this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromAddressCheckBoxchecked || (this.advancedhookoptionsdialog.isOutDynamicCallReferencesfromFunctionCheckBoxchecked && reason_for_hook_generation.indexOf("containing a dynamic (computed) call/jump")>=0))
+			{
+				String current_instruction_str_lowercase=current_instruction.toString().toLowerCase().trim();
+				String current_instruction_mnemonic=current_instruction.getMnemonicString().toLowerCase().trim();
+				
+				if (this.current_program_language.getLanguageID().toString().indexOf("x86:LE:64")>=0 && 
+						(current_instruction_mnemonic.equals("call") || current_instruction_mnemonic.equals("jmp"))
+					)
+					
+				{
+					return true;
+				}
+				
+				if (this.current_program_language.getLanguageID().toString().indexOf("AARCH64:LE:64")>=0 && 
+						(current_instruction_mnemonic.equals("blr") || current_instruction_mnemonic.equals("bx") ||
+						 current_instruction_mnemonic.equals("br") || current_instruction_mnemonic.equals("blraaz") ||
+						 current_instruction_mnemonic.equals("blrabz") )
+					)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 	
 	
 	protected void update_internal_data_structures(Address addr,String hook_str, String reason_for_hook_generation)
 	{
 		this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch++;
 		String tmpstr=String.valueOf(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"|"+reason_for_hook_generation;
-		this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(addr.toString(),tmpstr);
+		this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(addr.toString(),tmpstr); //this is the initial placement of this address in the Addresses_for_current_hook_str data structure
 		this.internal_structures_for_hook_generation.addresses_for_which_hook_is_generated_in_order_of_appearance.add(addr);
 		this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.add(hook_str);
+		//if it fills the prerequisites for code to be added later, then update the Addresses_that_need_hook_code_to_be_added_at_a_later_stage
+		if (this.isAdvanced && can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr)) //first check
+		{
+			Instruction current_instruction=this.current_program_listing.getInstructionAt(addr);
+			//Check for computed calls/jumps . This time we need to be certain that this address is supposed to contain code related to computed calls/jumps
+			if (current_instruction!=null && does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later(current_instruction,reason_for_hook_generation))
+			{			
+				HashMap<String,String> tmphm= new HashMap<String,String>();
+				String reason_for_computed_call_or_jump="";
+				if (this.current_program_listing.getFunctionContaining(addr)!=null && this.current_program_listing.getFunctionContaining(addr).getEntryPoint()==addr)
+				{
+					reason_for_computed_call_or_jump="start of function";
+				}
+				{
+					reason_for_computed_call_or_jump="simple instruction";	
+				}
+				tmphm.put("Computed Call/Jump",reason_for_computed_call_or_jump);
+				if (!this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.containsKey(addr))
+				{
+					this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.put(addr,tmphm );
+				}
+				else
+				{
+					//see if this address has already been registered as "Computed Call/Jump"
+					if (this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.get(addr).containsKey("Computed Call/Jump"))
+					{
+						;//do nothing, it's already registered
+					}
+					else
+					{
+						this.internal_structures_for_hook_generation.Addresses_that_need_hook_code_to_be_added_at_a_later_stage.get(addr).put("Computed Call/Jump",reason_for_computed_call_or_jump);
+					}
+				}
+			}
+		}
 	}
 	
 	protected String format_reason_for_hooking(String unformatted_reason)

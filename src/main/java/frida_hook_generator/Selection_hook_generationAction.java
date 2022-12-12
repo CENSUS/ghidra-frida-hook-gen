@@ -128,7 +128,7 @@ public class Selection_hook_generationAction extends DockingAction {
 		ArrayList<CodeUnit> code_units_to_try_to_hook_into=new ArrayList<CodeUnit>(); //these are the code units in the selection
 		Listing current_program_listing=this.current_program.getListing();
 		/*Initialize the dialog, which will appear once and affect all the code units of the selection, one by one*/
-		this.once_off_advanced_hook_options_dialog=new AdvancedHookOptionsDialog("Generate Hooks for selection",this.incoming_plugin.getTool(),true);
+		this.once_off_advanced_hook_options_dialog=new AdvancedHookOptionsDialog("Generate Hooks for selection",this.incoming_plugin.getTool(),this.current_program,true);
 		this.once_off_advanced_hook_options_dialog.fetch_advanced_hook_options(null, this.current_program);  //show the dialog
 		String entire_hook="";
 

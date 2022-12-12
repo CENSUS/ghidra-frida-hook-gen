@@ -42,11 +42,17 @@ public class Internal_structures_for_hook_generation {
 	protected ArrayList<Address> addresses_for_which_hook_is_generated_in_order_of_appearance;
 	//This ArrayList keeps the hooks which are generated for every individual address, in order of appearance.
 	protected ArrayList<String> hooks_generated_per_address_in_order_of_appearance;
+	//This HashMap keeps the addresses for which "special treatment" is requested. In other words, their hook will contain more things. For example, the computed call addresses will be in this list. The internal HashMap field contains the reasons for which special treatment is needed, in the following format: {"<reason1>":"<optional_info1>","<reason2>":"<optional_info2>"...}
+	protected HashMap<Address,HashMap<String,String>> Addresses_that_need_hook_code_to_be_added_at_a_later_stage;
+	//This HashMap keeps some messages that are to be output between the hooks, in the form <index,message>
+	protected HashMap<Integer,String> Messages_to_be_included_between_hooks;
 	
 	public Internal_structures_for_hook_generation() {
 		this.Addresses_for_current_hook_str= new HashMap<String, String>();
 		this.how_many_addresses_have_been_hooked_so_far_in_this_batch=0;
 		this.addresses_for_which_hook_is_generated_in_order_of_appearance=new ArrayList<Address>();
 		this.hooks_generated_per_address_in_order_of_appearance=new ArrayList<String>();
+		this.Addresses_that_need_hook_code_to_be_added_at_a_later_stage=new HashMap<Address,HashMap<String,String>>(); 
+		this.Messages_to_be_included_between_hooks=new HashMap<Integer,String>();
 	}
 }

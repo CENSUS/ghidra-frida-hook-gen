@@ -109,13 +109,14 @@ public class GenerateFridaHookScriptAction extends ListingContextAction {
 		this.consoleService=this.incoming_plugintool.getService(ConsoleService.class); //Note: If this line is called in the constructor, then the consoleService may be null
 		//Next, initialize the dialog and the state for the hook generation
 		this.internal_structures_for_hook_generation=new Internal_structures_for_hook_generation();
-		this.advancedhookoptionsdialog = new AdvancedHookOptionsDialog("Advanced Frida Hook Options",this.incoming_plugintool,false);
+		
+		Program current_program=context.getProgram();
+		this.advancedhookoptionsdialog = new AdvancedHookOptionsDialog("Advanced Frida Hook Options",this.incoming_plugintool,current_program,false);
 		String hook_str="";
 		
 		
 		Address addr;
 		ProgramLocation location;
-		Program current_program=context.getProgram();
 		addr=context.getAddress();
 		location = context.getLocation();
 		/*Follow the location reference if it is present*/

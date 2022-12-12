@@ -19,7 +19,7 @@ It should be noted that the right-click should be done when hovering over the in
 
 #### Installation:
 
-- Decompress the ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside dist/ , in a folder
+- Decompress the ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside dist/ , in a folder, named `frida_hook_generator`. 
 - Change the extension.properties file inside that folder, to reflect your Ghidra version (if it is not 10.1.4)
 - Ghidra (before opening a tool) -> File -> Install Extensions -> + sign -> Select the folder -> Make sure the frida_hook_generator is checked in the list of extensions
 - Restart Ghidra
