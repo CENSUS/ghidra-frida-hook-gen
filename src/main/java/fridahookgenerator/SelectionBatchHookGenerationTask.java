@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -41,7 +41,7 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
 
-public class SelectionBatch_hook_generation_task extends Task {
+public class SelectionBatchHookGenerationTask extends Task {
 
 
 	protected Boolean is_cancelled;
@@ -52,13 +52,13 @@ public class SelectionBatch_hook_generation_task extends Task {
 	protected String final_hook_str;
 	Program incoming_program;
 	private AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog;
-	protected Internal_structures_for_hook_generation internal_structures_for_hook_generation;
+	protected InternalStructuresForHookGeneration internal_structures_for_hook_generation;
 	private ConsoleService consoleService;
 	private Boolean print_debug;
 	protected String result_of_selectionbatch_hook_generation_task;
 	
-	public SelectionBatch_hook_generation_task(String title, ArrayList<CodeUnit> code_units_to_try_to_hook_into, PluginTool tool, Program incoming_program, 
-											   AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,Internal_structures_for_hook_generation incoming_internal_structures,
+	public SelectionBatchHookGenerationTask(String title, ArrayList<CodeUnit> code_units_to_try_to_hook_into, PluginTool tool, Program incoming_program, 
+											   AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,InternalStructuresForHookGeneration incoming_internal_structures,
 											   ConsoleService consoleService, Boolean print_debug)
 	{
 		super(title,true,false,true,true);  //Modal, takes the screen , also waitForTaskCompleted=true
@@ -117,7 +117,7 @@ public class SelectionBatch_hook_generation_task extends Task {
 				we_are_in_the_final_hook_of_the_batch=true;
 			}
 			/*Initialize and run the hook generator for this iteration of the loop*/
-			Hook_generator hook_generator=new Hook_generator(this.incoming_plugintool,this.incoming_program,current_address,this.isAdvanced,this.isSnippet,this.incoming_advancedhookoptionsdialog,
+			HookGenerator hook_generator=new HookGenerator(this.incoming_plugintool,this.incoming_program,current_address,this.isAdvanced,this.isSnippet,this.incoming_advancedhookoptionsdialog,
 					monitor,this.internal_structures_for_hook_generation,we_are_in_the_first_hook_of_the_batch,we_are_in_the_final_hook_of_the_batch,this.consoleService,this.print_debug);
 			hook_generator.do_generate_hook();
 			if (monitor.isCancelled()) //check for cancellation

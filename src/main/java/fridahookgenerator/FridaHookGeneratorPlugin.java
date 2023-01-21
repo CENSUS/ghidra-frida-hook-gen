@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 
 import ghidra.app.plugin.PluginCategoryNames;
@@ -86,12 +86,12 @@ import ghidra.program.util.ProgramLocation;
 	//servicesRequired = { ConsoleService.class}
 )
 //@formatter:on
-public class frida_hook_generatorPlugin extends ProgramPlugin {
+public class FridaHookGeneratorPlugin extends ProgramPlugin {
 
 	GenerateFridaHookScriptAction FridaHookScriptAction;
 	GenerateFridaHookScriptAction FridaHookSnippetAction;
 	GenerateFridaHookScriptAction FridaHookAdvancedAction;
-	Selection_hook_generationAction SearchSelectionAction;
+	SelectionHookGenerationAction SearchSelectionAction;
 	StructAccessCodeGenerationAction StructAccessAction;
 	
 	/**
@@ -99,8 +99,9 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 	 * 
 	 * @param tool The plugin tool that this plugin is added to.
 	 */
-	public frida_hook_generatorPlugin(PluginTool tool) {
-		super(tool, true, true);
+	public FridaHookGeneratorPlugin(PluginTool tool) {
+		//super(tool, true, true);
+		super(tool);
 
 		String pluginName = getName();
 		Boolean isSnippet=false;
@@ -127,7 +128,7 @@ public class frida_hook_generatorPlugin extends ProgramPlugin {
 		FridaHookScriptAction.setHelpLocation(new HelpLocation(topicName, anchorName));
 		
 		/*Now add the plugin part which allows for hook generation based on a selection*/
-		SearchSelectionAction=new Selection_hook_generationAction(this,this.getProgramSelection());
+		SearchSelectionAction=new SelectionHookGenerationAction(this,this.getProgramSelection());
 		tool.addAction(SearchSelectionAction);
 		
 		/*And the plugin part which allows for generation of code for struct getters and setters*/

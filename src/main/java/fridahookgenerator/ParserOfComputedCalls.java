@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 public interface ParserOfComputedCalls {
 

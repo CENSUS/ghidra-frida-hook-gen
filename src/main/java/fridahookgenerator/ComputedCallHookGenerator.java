@@ -1,7 +1,7 @@
-package frida_hook_generator;
+package fridahookgenerator;
 
-import frida_hook_generator.ParsersOfComputedCalls.ARM64ParserOfComputedCall;
-import frida_hook_generator.ParsersOfComputedCalls.X86ParserOfComputedCall;
+import fridahookgenerator.ParsersOfComputedCalls.ARM64ParserOfComputedCall;
+import fridahookgenerator.ParsersOfComputedCalls.X86ParserOfComputedCall;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.Processor;
@@ -60,6 +60,7 @@ public class ComputedCallHookGenerator {
 		retval+= spaces+"{\n";
 		retval+= spaces+"    var offset_from_module_start_for_target_address_for_initial_address_"+this.incoming_address+"=calculated_target_address_for_initial_address_"+this.incoming_address+".sub(module_containing_target_address.base);\n";
 		retval+= spaces+"    console.log(\"Next destination (after the "+this.mnemonic_of_command+") will be to address \"+calculated_target_address_for_initial_address_"+this.incoming_address+"+\", which has offset \"+offset_from_module_start_for_target_address_for_initial_address_"+this.incoming_address+"+\" relative to the module \"+ JSON.stringify(module_containing_target_address));\n";
+		retval+= spaces+"    console.log(\"Debug information on the target address: \"+JSON.stringify(DebugSymbol.fromAddress(calculated_target_address_for_initial_address_"+this.incoming_address+")));\n";
 		retval+= spaces+"    //Interceptor.attach(calculated_target_address_for_initial_address_"+this.incoming_address+",function(){console.log(\"Reached target addess from computed call\")})\n";
 		retval+= spaces+"}\n";
 		retval+= spaces+"else\n";

@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 import docking.DialogComponentProvider;
 
@@ -41,6 +41,7 @@ import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -67,79 +68,100 @@ import ghidra.util.layout.VerticalLayout;
 public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 	private PluginTool tool;
-	protected Boolean isOKpressed;
-	protected Boolean is_invoked_from_selecting_multiple_addresses;
+	public Boolean isOKpressed;
+	public Boolean is_invoked_from_selecting_multiple_addresses;
 	
 	/*Incoming References items*/
-	protected JCheckBox ReferencestoAddressCheckBox;
-	protected Boolean isReferencestoAddressCheckBoxchecked;
-	protected JCheckBox FunctionsReferencingAddressCheckBox;
-	protected Boolean isFunctionsReferencingAddressCheckBoxchecked;
-	protected JCheckBox ReferencestoFunctionCheckbox;
-	protected Boolean isReferencestoFunctionCheckboxchecked;
-	protected JCheckBox FunctionsReferencingFunctionCheckbox;
-	protected Boolean isFunctionsReferencingFunctionCheckboxchecked;
-	protected JComboBox<String> InFunctionReferenceDepthcomboBox;
+	public JCheckBox ReferencestoAddressCheckBox;
+	public Boolean isReferencestoAddressCheckBoxchecked;
+	public JCheckBox FunctionsReferencingAddressCheckBox;
+	public Boolean isFunctionsReferencingAddressCheckBoxchecked;
+	public JCheckBox ReferencestoFunctionCheckbox;
+	public Boolean isReferencestoFunctionCheckboxchecked;
+	public JCheckBox FunctionsReferencingFunctionCheckbox;
+	public Boolean isFunctionsReferencingFunctionCheckboxchecked;
+	public JComboBox<String> InFunctionReferenceDepthcomboBox;
 	
 	/*Outgoing References items*/
-	protected JCheckBox OutReferencesfromFunctionCheckBox;
-	protected Boolean isOutReferencesfromFunctionCheckBoxchecked;
-	protected JComboBox<String> OutFunctionReferenceDepthcomboBox;
-	protected JCheckBox OutReferencesfromAddressCheckBox;
-	protected Boolean isOutReferencesfromAddressCheckBoxchecked;
-	protected JCheckBox OutDynamicCallReferencesfromFunctionCheckBox;
-	protected Boolean isOutDynamicCallReferencesfromFunctionCheckBoxchecked;
-	protected JCheckBox OutDynamicCallReferencesfromAddressCheckBox;
-	protected Boolean isOutDynamicCallReferencesfromAddressCheckBoxchecked;
+	public JCheckBox OutReferencesfromFunctionCheckBox;
+	public Boolean isOutReferencesfromFunctionCheckBoxchecked;
+	public JComboBox<String> OutFunctionReferenceDepthcomboBox;
+	public JCheckBox OutReferencesfromAddressCheckBox;
+	public Boolean isOutReferencesfromAddressCheckBoxchecked;
+	public JCheckBox OutDynamicCallReferencesfromFunctionCheckBox;
+	public Boolean isOutDynamicCallReferencesfromFunctionCheckBoxchecked;
+	public JCheckBox OutDynamicCallReferencesfromAddressCheckBox;
+	public Boolean isOutDynamicCallReferencesfromAddressCheckBoxchecked;
 	
 	/*Range items*/
-	protected JCheckBox HookThisAddressCheckBox;
-	protected Boolean isHookThisAddressCheckBoxchecked;
-	protected JCheckBox RangeAddressesCheckBox;
-	protected Boolean isRangeAddressesCheckBoxchecked;
-	protected JCheckBox RangeFunctionsCheckBox;
-	protected Boolean isRangeFunctionsCheckBoxchecked;
-	protected GLabel RangeAddressesNumLabel;
-	protected JTextField RangeAddressesNumTextField;
-	protected int RangeAddressesNum;
-	protected GLabel RangeFunctionsNumLabel;
-	protected JTextField RangeFunctionsNumTextField;
-	protected int RangeFunctionsNum;
-	protected ButtonGroup RangeAddressesButtonGroup;
-	protected GRadioButton RangeAddressesRadioButtonAddr;
-	protected GRadioButton RangeAddressesRadioButtonInstr;
-	protected GRadioButton RangeAddressesRadioButtonFun;
-	protected ButtonGroup RangeFunctionsButtonGroup;
-	protected GRadioButton RangeFunctionsRadioButtonAddr;
-	protected GRadioButton RangeFunctionsRadioButtonInstr;
-	protected GRadioButton RangeFunctionsRadioButtonFun;
-	protected GRadioButton RangeFunctionsRadioButtonFunBackwards;
-	protected JCheckBox FunctionRegexCheckBox;
-	protected Boolean isFunctionRegexCheckBoxchecked;
-	protected JTextField FunctionRegexTextField;
+	public JCheckBox HookThisAddressCheckBox;
+	public Boolean isHookThisAddressCheckBoxchecked;
+	public JCheckBox RangeAddressesCheckBox;
+	public Boolean isRangeAddressesCheckBoxchecked;
+	public JCheckBox RangeFunctionsCheckBox;
+	public Boolean isRangeFunctionsCheckBoxchecked;
+	public GLabel RangeAddressesNumLabel;
+	public JTextField RangeAddressesNumTextField;
+	public int RangeAddressesNum;
+	public GLabel RangeFunctionsNumLabel;
+	public JTextField RangeFunctionsNumTextField;
+	public int RangeFunctionsNum;
+	public ButtonGroup RangeAddressesButtonGroup;
+	public GRadioButton RangeAddressesRadioButtonAddr;
+	public GRadioButton RangeAddressesRadioButtonInstr;
+	public GRadioButton RangeAddressesRadioButtonFun;
+	public ButtonGroup RangeFunctionsButtonGroup;
+	public GRadioButton RangeFunctionsRadioButtonAddr;
+	public GRadioButton RangeFunctionsRadioButtonInstr;
+	public GRadioButton RangeFunctionsRadioButtonFun;
+	public GRadioButton RangeFunctionsRadioButtonFunBackwards;
+
 	
 	/*Output items*/
-	protected JCheckBox OutputReasonForHookGenCheckbox;
-	protected Boolean isOutputReasonForHookGenCheckboxchecked;
-	protected JComboBox<String> ReasonForHookGenAmountcomboBox;
-	protected JCheckBox GenerateScriptCheckbox;
-	protected Boolean isGenerateScriptCheckboxchecked;
-	protected JComboBox<String> TypeofScriptGenerationcomboBox;
-	protected JCheckBox CustomFunInterceptorHookOutputCheckbox;
-	protected Boolean isCustomFunInterceptorHookOutputCheckboxchecked;
-	protected JComboBox<String> CustomFunInterceptorHookOutputcomboBox;
-	protected JCheckBox DoNotIncludeFunParamscheckbox;
-	protected Boolean isDoNotIncludeFunParamscheckboxchecked;
-	protected JCheckBox IncludeCustomTextcheckbox;
-	protected Boolean isIncludeCustomTextcheckboxchecked;
-	protected JTextField IncludeCustomTextTextField;
-	protected JCheckBox GenerateBacktraceCheckbox;
-	protected Boolean isGenerateBacktraceCheckboxchecked;
-	protected JComboBox<String> GenerateBacktracecomboBox;
+	public JCheckBox OutputReasonForHookGenCheckbox;
+	public Boolean isOutputReasonForHookGenCheckboxchecked;
+	public JComboBox<String> ReasonForHookGenAmountcomboBox;
+	public JCheckBox GenerateScriptCheckbox;
+	public Boolean isGenerateScriptCheckboxchecked;
+	public JComboBox<String> TypeofScriptGenerationcomboBox;
+	public JCheckBox CustomFunInterceptorHookOutputCheckbox;
+	public Boolean isCustomFunInterceptorHookOutputCheckboxchecked;
+	public JComboBox<String> CustomFunInterceptorHookOutputcomboBox;
+	public JCheckBox DoNotIncludeFunParamscheckbox;
+	public Boolean isDoNotIncludeFunParamscheckboxchecked;
+	public JCheckBox GenerateBacktraceCheckbox;
+	public Boolean isGenerateBacktraceCheckboxchecked;
+	public JComboBox<String> GenerateBacktracecomboBox;
+	public JCheckBox GenerateNormalAddressHooksForFunctionBeginningscheckbox;
+	public Boolean isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked;
 
+	/*Multi-Hook management items*/
+	public JCheckBox FunctionRegexCheckBox;
+	public Boolean isFunctionRegexCheckBoxchecked;
+	public JTextField FunctionRegexTextField;
+	public JCheckBox HookExportsCheckBox;
+	public Boolean isHookExportsCheckBoxchecked;
+	public JCheckBox CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox;
+	public Boolean isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked;
+	public JCheckBox IncludeCustomTextcheckbox;
+	public Boolean isIncludeCustomTextcheckboxchecked;
+	public JTextField IncludeCustomTextTextField;
+	public JCheckBox IncludeInterceptorTryCatchcheckbox;
+	public Boolean isIncludeInterceptorTryCatchcheckboxchecked;
+	public JCheckBox DoNotHookThunkFunctionscheckbox;
+	public Boolean isDoNotHookThunkFunctionscheckboxchecked;
+	public JCheckBox DoNotHookExternalFunctionscheckbox;
+	public Boolean isDoNotHookExternalFunctionscheckboxchecked;
+	
 	private Program current_program;
 	private Address addr;
 
+	public AdvancedHookOptionsDialog(PluginTool tool, Program current_program)
+	{
+		/*Constructor that is used for API calling*/
+		this("API-generated Advanced Hook Options Dialog", tool, current_program,true);
+	}
+	
 	public AdvancedHookOptionsDialog(String title, PluginTool tool, Program current_program,Boolean is_invoked_from_selecting_multiple_addresses) {
 		super(title, true, true, true, false);
 		this.tool = tool;
@@ -160,10 +182,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isCustomFunInterceptorHookOutputCheckboxchecked=false;
 		this.isDoNotIncludeFunParamscheckboxchecked=false;
 		this.isFunctionRegexCheckBoxchecked=false;
+		this.isHookExportsCheckBoxchecked=false;
 		this.isGenerateBacktraceCheckboxchecked=false;
 		this.isIncludeCustomTextcheckboxchecked=false;
 		this.isOutDynamicCallReferencesfromFunctionCheckBoxchecked=false;
 		this.isOutDynamicCallReferencesfromAddressCheckBoxchecked=false;
+		this.isIncludeInterceptorTryCatchcheckboxchecked=false;
+		this.isDoNotHookThunkFunctionscheckboxchecked=false;
+		this.isDoNotHookExternalFunctionscheckboxchecked=false;
+		this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=false;
+		this.isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked=false;
 		
 		addWorkPanel(create());
 		setFocusComponent(ReferencestoAddressCheckBox);
@@ -236,9 +264,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		RangeFunctionsButtonGroup.add(RangeFunctionsRadioButtonFunBackwards);
 		RangeAddressesRadioButtonFun.setSelected(true);
 		RangeFunctionsRadioButtonFun.setSelected(true);
-		FunctionRegexCheckBox=new GCheckBox("Generate hooks for functions whose name matches the following (case insensitive) regular expression:");
-		FunctionRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful");
-		FunctionRegexTextField=new JTextField(10);
+
 		
 		OutputReasonForHookGenCheckbox = new GCheckBox("Print the reason(s) why each hook is generated, maximum number of reasons:");
 		OutputReasonForHookGenCheckbox.setToolTipText(
@@ -255,10 +281,6 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		DoNotIncludeFunParamscheckbox=new GCheckBox("In case of hook generation for functions, do not print their parameters");
 		DoNotIncludeFunParamscheckbox.setToolTipText("In case of hook generation for functions, do not print their parameters");	
 		
-		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code in every hook generated:");
-		IncludeCustomTextcheckbox.setToolTipText("Adds javascript code in every hook, at the start (not present in function hook if onEnter() is removed)");
-		IncludeCustomTextTextField=new JTextField(30);
-		
 		GenerateBacktraceCheckbox=new GCheckBox("Generate backtrace:");
 		GenerateBacktraceCheckbox.setToolTipText("Generate a backtrace through the methods provided by frida (not present in function hook if onEnter() is removed)");	
 		String[] ways_to_generate_backtrace= {"Backtracer.ACCURATE at function beginnings","Backtracer.FUZZY at function beginnings","Backtracer.ACCURATE in every hook","Backtracer.FUZZY in every hook"};
@@ -272,9 +294,38 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method (EXPERIMENTAL)", "LoadLibrary() method (EXPERIMENTAL)"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
+		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");
+		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setToolTipText(
+				"If an adress is at the start of a function, then normally onEnter()/onLeave() methods are created in its hook. This option forces the address to be treated as any other address, without onEnter()/onLeave() methods. This will also cause the execution to not follow any code paths that assume that the address is at the start of a function.");
+		
+		
+		FunctionRegexCheckBox=new GCheckBox("Generate hooks for functions whose name matches the following (case insensitive) regular expression:");
+		FunctionRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful");
+		FunctionRegexTextField=new JTextField(10);
+		
+		HookExportsCheckBox=new GCheckBox("Generate hooks for all exported symbols");
+		HookExportsCheckBox.setToolTipText("Generate hooks for all exported symbols which can be entry points. This is useful when you want to identify from which point a shared library is entered.");
+		
+		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox=new GCheckBox("Create and initialize data structures that associate the hooked addresses with function names, accessible from javascript");
+		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setToolTipText("CrGenerateNormalAddressHooksForFunctionBeginningscheckboxeate and initialize the relevant data structures, as it may be useful to be able to fetch the current function name (as visible in Ghidra) from the current address in javascript (accessible through \"this.context.pc\")");
+		
+		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code in every hook generated:");
+		IncludeCustomTextcheckbox.setToolTipText("Adds javascript code in every hook, at the start (not present in function hook if onEnter() is removed)");
+		IncludeCustomTextTextField=new JTextField(30);
+		
+		IncludeInterceptorTryCatchcheckbox=new GCheckBox("Add try/catch blocks for Interceptor calls in order to not stop in case of error");
+		IncludeInterceptorTryCatchcheckbox.setToolTipText("If Frida fails to register an Interceptor, it stops and does not register any other hooks coming after the one that errors. By using a try/catch scheme, this can be bypassed. Warning: You might want to stop on error, use this option with caution.");
+		
+		DoNotHookThunkFunctionscheckbox=new GCheckBox("Do not hook Thunk Functions even if they fall into the range of the addresses to be hooked");
+		DoNotHookThunkFunctionscheckbox.setToolTipText("In case of multiple function calls, hooking Thunk functions may add too many or failed hooks, or even block the hooking of a larger function if the thunk code is close to its beginning");
+		
+		DoNotHookExternalFunctionscheckbox=new GCheckBox("Do not hook External Functions even if they fall into the range of the addresses to be hooked");
+		DoNotHookExternalFunctionscheckbox.setToolTipText("In case of multiple function calls, hooking External functions may add too many or failed hooks, or even block the hooking of a larger function if the external function code is close to its beginning");
+		
 
+		
 		JPanel mainPanel = new JPanel(new VerticalLayout(30));
-		mainPanel.setPreferredSize(new Dimension(750,430));
+		//mainPanel.setPreferredSize(new Dimension(980,650));  //if not enough, make larger
 		JPanel referencesPanel = new JPanel(new VerticalLayout(4));
 		JPanel referencessubPanel = new JPanel(new HorizontalLayout(4));
 		JPanel outreferencesPanel = new JPanel(new VerticalLayout(4));
@@ -282,13 +333,15 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		JPanel rangePanel = new JPanel(new VerticalLayout(4));
 		JPanel rangeSubPanel1 = new JPanel(new HorizontalLayout(4));
 		JPanel rangeSubPanel2 = new JPanel(new HorizontalLayout(4));
-		JPanel rangeSubPanel3 = new JPanel(new HorizontalLayout(4));
 		JPanel outputPanel = new JPanel(new VerticalLayout(4));
 		JPanel outputSubPanel1 = new JPanel(new HorizontalLayout(4));
 		JPanel outputSubPanel2 = new JPanel(new HorizontalLayout(4));
 		JPanel outputSubPanel3 = new JPanel(new HorizontalLayout(4));
 		JPanel outputSubPanel4 = new JPanel(new HorizontalLayout(4));
-		JPanel outputSubPanel5 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookPanel = new JPanel(new VerticalLayout(4));
+		JPanel multihookSubPanel1 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookSubPanel2 = new JPanel(new HorizontalLayout(4));
+
 		
 		TitledBorder referenceBorder =
 			BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "Incoming Reference options");
@@ -306,11 +359,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 			BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "Output Options");
 		outputPanel.setBorder(outputborder);
 		
+		TitledBorder multihookborder =
+				BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "Management Options for Multiple Hooks");
+		multihookPanel.setBorder(multihookborder);
+		
 
 		mainPanel.add(referencesPanel);
 		mainPanel.add(outreferencesPanel);
 		mainPanel.add(rangePanel);
 		mainPanel.add(outputPanel);
+		mainPanel.add(multihookPanel);
 
 		referencesPanel.add(ReferencestoAddressCheckBox,BorderLayout.NORTH);
 		referencesPanel.add(FunctionsReferencingAddressCheckBox,BorderLayout.NORTH);
@@ -354,12 +412,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		rangeSubPanel2.add(RangeFunctionsRadioButtonFun);
 		rangeSubPanel2.add(RangeFunctionsRadioButtonFunBackwards);
 		rangePanel.add(rangeSubPanel2);
-		if (!is_invoked_from_selecting_multiple_addresses)
-		{
-			rangeSubPanel3.add(FunctionRegexCheckBox);
-			rangeSubPanel3.add(FunctionRegexTextField);
-			rangePanel.add(rangeSubPanel3);
-		}
+
 		
 		outputSubPanel1.add(OutputReasonForHookGenCheckbox);
 		outputSubPanel1.add(ReasonForHookGenAmountcomboBox);
@@ -367,20 +420,42 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		outputSubPanel2.add(CustomFunInterceptorHookOutputcomboBox);
 		outputSubPanel3.add(GenerateBacktraceCheckbox);
 		outputSubPanel3.add(GenerateBacktracecomboBox);
-		outputSubPanel4.add(IncludeCustomTextcheckbox);
-		outputSubPanel4.add(IncludeCustomTextTextField);
-		outputSubPanel5.add(GenerateScriptCheckbox);
-		outputSubPanel5.add(TypeofScriptGenerationcomboBox);
+		outputSubPanel4.add(GenerateScriptCheckbox);
+		outputSubPanel4.add(TypeofScriptGenerationcomboBox);
 		outputPanel.add(outputSubPanel1,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel2,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel3,BorderLayout.NORTH);
 		outputPanel.add(DoNotIncludeFunParamscheckbox,BorderLayout.NORTH);
+		outputPanel.add(GenerateNormalAddressHooksForFunctionBeginningscheckbox,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel4,BorderLayout.NORTH);
-		outputPanel.add(outputSubPanel5,BorderLayout.NORTH);
 		
+		
+		if (!is_invoked_from_selecting_multiple_addresses)
+		{
+			multihookSubPanel1.add(FunctionRegexCheckBox);
+			multihookSubPanel1.add(FunctionRegexTextField);
+			multihookPanel.add(multihookSubPanel1);
+			multihookPanel.add(HookExportsCheckBox);
+		}
+		
+		multihookPanel.add(CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox);
+		multihookSubPanel2.add(IncludeCustomTextcheckbox);
+		multihookSubPanel2.add(IncludeCustomTextTextField);
+		multihookPanel.add(multihookSubPanel2);
+		multihookPanel.add(IncludeInterceptorTryCatchcheckbox,BorderLayout.NORTH);
+		multihookPanel.add(DoNotHookThunkFunctionscheckbox,BorderLayout.NORTH);
+		multihookPanel.add(DoNotHookExternalFunctionscheckbox,BorderLayout.NORTH);
+		
+		mainPanel.setPreferredSize(mainPanel.getPreferredSize());
 		mainPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		return mainPanel;
+		
+		
+		JScrollPane scroller = new JScrollPane(mainPanel);
+		JPanel PaneltoReturn = new JPanel();
+		PaneltoReturn.setLayout(new BorderLayout());
+		PaneltoReturn.add(scroller,BorderLayout.CENTER);
+		
+		return PaneltoReturn;
 	}
 
 
@@ -396,12 +471,12 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	
 		
 	
-	private void initDialogForAdvancedHookOptions(Program p, Address address) {
+	protected void initDialogForAdvancedHookOptions(Program p, Address address) {
 
 		this.addr = address;
 		this.current_program = p;
 
-		if (!is_invoked_from_selecting_multiple_addresses)
+		if (!is_invoked_from_selecting_multiple_addresses && address!=null)
 		{
 			setTitle("Create advanced Frida Hook regarding address " + address);
 		}
@@ -425,10 +500,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		OutputReasonForHookGenCheckbox.setEnabled(true);
 		CustomFunInterceptorHookOutputCheckbox.setEnabled(true);
 		DoNotIncludeFunParamscheckbox.setEnabled(true);
+		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
 		FunctionRegexCheckBox.setEnabled(true);
+		HookExportsCheckBox.setEnabled(true);
 		GenerateBacktraceCheckbox.setEnabled(true);
+		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
+		IncludeInterceptorTryCatchcheckbox.setEnabled(true);
+		DoNotHookThunkFunctionscheckbox.setEnabled(true);
+		DoNotHookExternalFunctionscheckbox.setEnabled(true);
 		OutDynamicCallReferencesfromFunctionCheckBox.setEnabled(true);
 		OutDynamicCallReferencesfromAddressCheckBox.setEnabled(true);
 
@@ -532,15 +613,39 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		if (FunctionRegexCheckBox.isEnabled() && FunctionRegexCheckBox.isSelected()) {
 			this.isFunctionRegexCheckBoxchecked=true;
 		}
+		if (HookExportsCheckBox.isEnabled() && HookExportsCheckBox.isSelected())
+		{
+			this.isHookExportsCheckBoxchecked=true;
+		}
 		if (CustomFunInterceptorHookOutputCheckbox.isEnabled() && CustomFunInterceptorHookOutputCheckbox.isSelected()) {
 			this.isCustomFunInterceptorHookOutputCheckboxchecked=true;
 		}
 		if (DoNotIncludeFunParamscheckbox.isEnabled() && DoNotIncludeFunParamscheckbox.isSelected()) {
 			this.isDoNotIncludeFunParamscheckboxchecked=true;
 		}
+		if (GenerateNormalAddressHooksForFunctionBeginningscheckbox.isEnabled() && GenerateNormalAddressHooksForFunctionBeginningscheckbox.isSelected())
+		{
+			this.isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked=true;
+		}	
+		if (CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.isEnabled() && CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.isSelected()) {
+			this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=true;
+		}
 		if (IncludeCustomTextcheckbox.isEnabled() && IncludeCustomTextcheckbox.isSelected()) {
 			this.isIncludeCustomTextcheckboxchecked=true;
 		}
+		if (IncludeInterceptorTryCatchcheckbox.isEnabled() && IncludeInterceptorTryCatchcheckbox.isSelected())
+		{
+			this.isIncludeInterceptorTryCatchcheckboxchecked=true;
+		}
+		if (DoNotHookThunkFunctionscheckbox.isEnabled() && DoNotHookThunkFunctionscheckbox.isSelected())
+		{
+			this.isDoNotHookThunkFunctionscheckboxchecked=true;
+		}
+		if (DoNotHookExternalFunctionscheckbox.isEnabled() && DoNotHookExternalFunctionscheckbox.isSelected())
+		{
+			this.isDoNotHookExternalFunctionscheckboxchecked=true;
+		}
+
 		if (GenerateBacktraceCheckbox.isEnabled() && GenerateBacktraceCheckbox.isSelected()) {
 			this.isGenerateBacktraceCheckboxchecked=true;
 		}

@@ -26,12 +26,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator.ParsersOfComputedCalls;
+package fridahookgenerator.ParsersOfComputedCalls;
 
 import java.util.ArrayList;
 
 import docking.action.KeyBindingType;
-import frida_hook_generator.ParserOfComputedCalls;
+import fridahookgenerator.ParserOfComputedCalls;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.lang.Language;
@@ -121,18 +121,59 @@ public class X86ParserOfComputedCall implements ParserOfComputedCalls{
 					str_so_far+=arg.charAt(i);
 				}
 			}
+			
 			// Now try to construct the frida code
+			int add_parentheses_because_of_previous_addition_or_subtraction=0; 
 			for (int i=0;i<substrings_with_registers.size();i++)
 			{
-				if (substrings_with_registers.get(i)=="+" || substrings_with_registers.get(i)=="-" || substrings_with_registers.get(i)=="*")
+				if (substrings_with_registers.get(i).strip().equals("+"))
 				{
-					retval+=substrings_with_registers.get(i);
+					if (add_parentheses_because_of_previous_addition_or_subtraction>0)
+					{
+						//set the previous parentheses if any (created by previous additions or subtractions, but not inserted when encountering multiplication or a register)
+						for (int j=0;j<add_parentheses_because_of_previous_addition_or_subtraction;j++)
+						{
+							retval+=")";
+						}
+						add_parentheses_because_of_previous_addition_or_subtraction=0;
+					}
+					
+					retval+=".add(";
+					add_parentheses_because_of_previous_addition_or_subtraction++;
+				}
+				else if (substrings_with_registers.get(i).strip().equals("-"))
+				{
+					
+					if (add_parentheses_because_of_previous_addition_or_subtraction>0)
+					{
+						//set the previous parentheses if any (created by previous additions or subtractions, but not inserted when encountering multiplication or a register)
+						for (int j=0;j<add_parentheses_because_of_previous_addition_or_subtraction;j++)
+						{
+							retval+=")";
+						}
+						add_parentheses_because_of_previous_addition_or_subtraction=0;
+					}
+					
+					
+					retval+=".sub(";
+					add_parentheses_because_of_previous_addition_or_subtraction++;
+				}
+				else if (substrings_with_registers.get(i).strip().equals("*"))
+				{
+					retval+=".toInt32()*";  //if multiplies, it should be a small number
 				}
 				else
 				{
-					retval+=return_frida_register_if_str_is_register(substrings_with_registers.get(i));
+					retval+=return_frida_register_if_str_is_register(substrings_with_registers.get(i).strip());
 				}
+
 			}
+			//and set the remaining parentheses
+			for (int i=0;i<add_parentheses_because_of_previous_addition_or_subtraction;i++)
+			{
+				retval+=")";
+			}
+
 		}
 		
 		retval="("+retval+")";

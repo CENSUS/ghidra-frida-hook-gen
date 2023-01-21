@@ -26,12 +26,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator.ParsersOfComputedCalls;
+package fridahookgenerator.ParsersOfComputedCalls;
 
 import java.util.ArrayList;
 
 import docking.action.KeyBindingType;
-import frida_hook_generator.ParserOfComputedCalls;
+import fridahookgenerator.ParserOfComputedCalls;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.lang.Language;

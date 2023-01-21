@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.services.ConsoleService;
@@ -38,7 +38,7 @@ import ghidra.util.task.Task;
 import ghidra.util.task.TaskDialog;
 import ghidra.util.task.TaskMonitor;
 
-public class Standard_hook_generation_task extends Task {
+public class StandardHookGenerationTask extends Task {
 
 	protected Boolean is_cancelled;
 	private PluginTool incoming_plugintool;
@@ -48,13 +48,13 @@ public class Standard_hook_generation_task extends Task {
 	Program incoming_program;
 	Address incoming_address;
 	private AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog;
-	protected Internal_structures_for_hook_generation internal_structures_for_hook_generation;
+	protected InternalStructuresForHookGeneration internal_structures_for_hook_generation;
 	private ConsoleService consoleService;
 	private Boolean print_debug;
 	protected String result_of_standard_hook_generation;
 	
-	public Standard_hook_generation_task(String title, PluginTool tool, Program incoming_program, Address incoming_address, Boolean isAdvanced, Boolean isSnippet, 
-			AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,Internal_structures_for_hook_generation incoming_internal_structures,
+	public StandardHookGenerationTask(String title, PluginTool tool, Program incoming_program, Address incoming_address, Boolean isAdvanced, Boolean isSnippet, 
+			AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,InternalStructuresForHookGeneration incoming_internal_structures,
 			ConsoleService consoleService, Boolean print_debug) 
 	{
 		super(title,true,false,true,true);  //Modal, takes the screen , also waitForTaskCompleted=true	
@@ -78,7 +78,7 @@ public class Standard_hook_generation_task extends Task {
 		this.result_of_standard_hook_generation="";
 		String hook_str="";
 		//Initialize the hook generator. The variables we_are_in_the_first/last_hook_of_the_batch are set to true, as the generator will only be invoked once
-		Hook_generator hook_generator=new Hook_generator(this.incoming_plugintool,this.incoming_program,this.incoming_address,this.isAdvanced,this.isSnippet,this.incoming_advancedhookoptionsdialog,
+		HookGenerator hook_generator=new HookGenerator(this.incoming_plugintool,this.incoming_program,this.incoming_address,this.isAdvanced,this.isSnippet,this.incoming_advancedhookoptionsdialog,
 				monitor,this.internal_structures_for_hook_generation,true,true,this.consoleService,this.print_debug);
 		
 		monitor.checkCanceled();

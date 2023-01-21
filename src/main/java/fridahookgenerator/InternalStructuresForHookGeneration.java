@@ -26,14 +26,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 
 import ghidra.program.model.address.Address;
 
-public class Internal_structures_for_hook_generation {
+public class InternalStructuresForHookGeneration {
 	
 	//This is a hashmap that contains for which addresses a hook has been generated, in the current batch. It is a data structure held so that interceptor hooks are not being created for the same address twice. The value of the field will be in the following format: <index in sequence of addresses>|<reason for hook 1>|<reason for hook 2>|....
 	protected HashMap<String, String> Addresses_for_current_hook_str;
@@ -47,7 +47,7 @@ public class Internal_structures_for_hook_generation {
 	//This HashMap keeps some messages that are to be output between the hooks, in the form <index,message>
 	protected HashMap<Integer,String> Messages_to_be_included_between_hooks;
 	
-	public Internal_structures_for_hook_generation() {
+	public InternalStructuresForHookGeneration() {
 		this.Addresses_for_current_hook_str= new HashMap<String, String>();
 		this.how_many_addresses_have_been_hooked_so_far_in_this_batch=0;
 		this.addresses_for_which_hook_is_generated_in_order_of_appearance=new ArrayList<Address>();

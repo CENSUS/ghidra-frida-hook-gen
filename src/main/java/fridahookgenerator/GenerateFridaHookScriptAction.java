@@ -26,7 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package frida_hook_generator;
+package fridahookgenerator;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
@@ -67,10 +67,10 @@ public class GenerateFridaHookScriptAction extends ListingContextAction {
 	private Boolean isSnippet;
 	private Boolean isAdvanced;
 	protected String final_hook_str;
-	private Standard_hook_generation_task hook_generation_task;
+	private StandardHookGenerationTask hook_generation_task;
 	private ConsoleService consoleService;
 	private AdvancedHookOptionsDialog advancedhookoptionsdialog;
-	private Internal_structures_for_hook_generation internal_structures_for_hook_generation;
+	private InternalStructuresForHookGeneration internal_structures_for_hook_generation;
 	
 	public GenerateFridaHookScriptAction(PluginTool tool, String owner, Boolean isSnippet, Boolean isAdvanced)
 	{
@@ -108,7 +108,7 @@ public class GenerateFridaHookScriptAction extends ListingContextAction {
 		//Initialize the console
 		this.consoleService=this.incoming_plugintool.getService(ConsoleService.class); //Note: If this line is called in the constructor, then the consoleService may be null
 		//Next, initialize the dialog and the state for the hook generation
-		this.internal_structures_for_hook_generation=new Internal_structures_for_hook_generation();
+		this.internal_structures_for_hook_generation=new InternalStructuresForHookGeneration();
 		
 		Program current_program=context.getProgram();
 		this.advancedhookoptionsdialog = new AdvancedHookOptionsDialog("Advanced Frida Hook Options",this.incoming_plugintool,current_program,false);
@@ -157,7 +157,7 @@ public class GenerateFridaHookScriptAction extends ListingContextAction {
 		}
 		
 		/*Create the task which will present a "Generating hooks..." message*/
-		this.hook_generation_task=new Standard_hook_generation_task("Generating Hooks for address "+addr+"...",this.incoming_plugintool, current_program,addr, this.isAdvanced,this.isSnippet, 
+		this.hook_generation_task=new StandardHookGenerationTask("Generating Hooks for address "+addr+"...",this.incoming_plugintool, current_program,addr, this.isAdvanced,this.isSnippet, 
 				this.advancedhookoptionsdialog,this.internal_structures_for_hook_generation,this.consoleService,false); 
 		this.incoming_plugintool.execute(this.hook_generation_task); //execute the task
 		//Due to the way the task is constructed (modal = true, waitfortaskcompleted=true), the code will block here until the task is done.
