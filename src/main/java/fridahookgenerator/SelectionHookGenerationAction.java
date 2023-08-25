@@ -141,7 +141,7 @@ public class SelectionHookGenerationAction extends DockingAction {
 			}
 		}
 		
-		this.selection_hook_generation_dispatcher=new SelectionHookGenerationTaskDispatcher(this.incoming_plugin.getTool(),this.current_program,code_units_to_try_to_hook_into);
+		this.selection_hook_generation_dispatcher=new SelectionHookGenerationTaskDispatcher(this.incoming_plugin.getTool(),this.current_program,code_units_to_try_to_hook_into,new ArrayList<CodeUnit>());
 		this.selection_hook_generation_dispatcher.perform_selection_hook_action();
 	}
 	

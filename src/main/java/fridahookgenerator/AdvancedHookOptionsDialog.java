@@ -129,6 +129,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public JComboBox<String> CustomFunInterceptorHookOutputcomboBox;
 	public JCheckBox DoNotIncludeFunParamscheckbox;
 	public Boolean isDoNotIncludeFunParamscheckboxchecked;
+	public JCheckBox IncludeFunParamNamescheckbox;
+	public Boolean isIncludeFunParamNamescheckboxchecked;
 	public JCheckBox GenerateBacktraceCheckbox;
 	public Boolean isGenerateBacktraceCheckboxchecked;
 	public JComboBox<String> GenerateBacktracecomboBox;
@@ -139,8 +141,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public JCheckBox FunctionRegexCheckBox;
 	public Boolean isFunctionRegexCheckBoxchecked;
 	public JTextField FunctionRegexTextField;
+	public JCheckBox FunctionMangledNameRegexCheckBox;
+	public Boolean isFunctionMangledNameRegexCheckBoxchecked;
+	public JTextField FunctionMangledNameRegexTextField;
+	public JCheckBox MemoryScanPatternCheckBox;
+	public Boolean isMemoryScanPatternCheckBoxchecked;
+	public JTextField MemoryScanPatternTextField;
 	public JCheckBox HookExportsCheckBox;
 	public Boolean isHookExportsCheckBoxchecked;
+	public JCheckBox HookImportsCheckBox;
+	public Boolean isHookImportsCheckBoxchecked;
 	public JCheckBox CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox;
 	public Boolean isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked;
 	public JCheckBox IncludeCustomTextcheckbox;
@@ -148,6 +158,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public JTextField IncludeCustomTextTextField;
 	public JCheckBox IncludeInterceptorTryCatchcheckbox;
 	public Boolean isIncludeInterceptorTryCatchcheckboxchecked;
+	public JCheckBox IncludeTIDAndIndentationcheckbox;
+	public Boolean isIncludeTIDAndIndentationcheckboxchecked;
 	public JCheckBox DoNotHookThunkFunctionscheckbox;
 	public Boolean isDoNotHookThunkFunctionscheckboxchecked;
 	public JCheckBox DoNotHookExternalFunctionscheckbox;
@@ -181,13 +193,18 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isOutputReasonForHookGenCheckboxchecked=false;
 		this.isCustomFunInterceptorHookOutputCheckboxchecked=false;
 		this.isDoNotIncludeFunParamscheckboxchecked=false;
+		this.isIncludeFunParamNamescheckboxchecked=false;
 		this.isFunctionRegexCheckBoxchecked=false;
+		this.isFunctionMangledNameRegexCheckBoxchecked=false;
+		this.isMemoryScanPatternCheckBoxchecked=false;
 		this.isHookExportsCheckBoxchecked=false;
+		this.isHookImportsCheckBoxchecked=false;
 		this.isGenerateBacktraceCheckboxchecked=false;
 		this.isIncludeCustomTextcheckboxchecked=false;
 		this.isOutDynamicCallReferencesfromFunctionCheckBoxchecked=false;
 		this.isOutDynamicCallReferencesfromAddressCheckBoxchecked=false;
 		this.isIncludeInterceptorTryCatchcheckboxchecked=false;
+		this.isIncludeTIDAndIndentationcheckboxchecked=false;
 		this.isDoNotHookThunkFunctionscheckboxchecked=false;
 		this.isDoNotHookExternalFunctionscheckboxchecked=false;
 		this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=false;
@@ -274,12 +291,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		ReasonForHookGenAmountcomboBox.setSelectedIndex(9);
 		
 		CustomFunInterceptorHookOutputCheckbox = new GCheckBox("In case of hook generation for functions:");
-		CustomFunInterceptorHookOutputCheckbox.setToolTipText("This option allows to modify the way the function interceptor hook generation is done");
+		CustomFunInterceptorHookOutputCheckbox.setToolTipText("This option allows to modify the way the function interceptor hook generation is done. WARNING: If checked with the option that includes threadIDs and indentation, blocking of OnEnter()/OnLeave() will not happen.");
 		String[] ways_to_alter_function_interceptor_hook= {"Do not include onEnter()","Do not include onLeave()","use Interceptor.replace() (EXPERIMENTAL!)"};
 		CustomFunInterceptorHookOutputcomboBox=new JComboBox<>(ways_to_alter_function_interceptor_hook);
 		
 		DoNotIncludeFunParamscheckbox=new GCheckBox("In case of hook generation for functions, do not print their parameters");
 		DoNotIncludeFunParamscheckbox.setToolTipText("In case of hook generation for functions, do not print their parameters");	
+		
+		IncludeFunParamNamescheckbox=new GCheckBox("In case of function parameter printing, their names should be printed as well");
+		IncludeFunParamNamescheckbox.setToolTipText("In case of function parameter printing, their names should be printed as well");	
+		
 		
 		GenerateBacktraceCheckbox=new GCheckBox("Generate backtrace:");
 		GenerateBacktraceCheckbox.setToolTipText("Generate a backtrace through the methods provided by frida (not present in function hook if onEnter() is removed)");	
@@ -296,18 +317,29 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setToolTipText(
-				"If an adress is at the start of a function, then normally onEnter()/onLeave() methods are created in its hook. This option forces the address to be treated as any other address, without onEnter()/onLeave() methods. This will also cause the execution to not follow any code paths that assume that the address is at the start of a function.");
+				"<html>If an adress is at the start of a function, then normally onEnter()/onLeave() methods are created in its hook. This option forces the address to be treated as any other address, without onEnter()/onLeave() methods. <br>This will also cause the execution to not follow any code paths that assume that the address is at the start of a function.<html>");
 		
 		
 		FunctionRegexCheckBox=new GCheckBox("Generate hooks for functions whose name matches the following (case insensitive) regular expression:");
 		FunctionRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful");
 		FunctionRegexTextField=new JTextField(10);
 		
+		FunctionMangledNameRegexCheckBox=new GCheckBox("Generate hooks for functions whose *mangled* name matches the following (case insensitive) regular expression (Experimental):");
+		FunctionMangledNameRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful. This option makes the regex also apply in the parameters (through the mangled name)");
+		FunctionMangledNameRegexTextField=new JTextField(10);
+		
+		MemoryScanPatternCheckBox=new GCheckBox("Generate hook skeleton for the following memory instruction pattern, being (Special) Copied from the Instruction Pattern Search window");
+		MemoryScanPatternCheckBox.setToolTipText("Hooking by memory pattern may be the best way to port hooks to newer binary versions. Go to Instruction Pattern Search -> select some of the String Previews -> Copy Special -> Selected Instructions and paste in the text box");
+		MemoryScanPatternTextField=new JTextField(10);
+		
 		HookExportsCheckBox=new GCheckBox("Generate hooks for all exported symbols");
 		HookExportsCheckBox.setToolTipText("Generate hooks for all exported symbols which can be entry points. This is useful when you want to identify from which point a shared library is entered.");
 		
+		HookImportsCheckBox=new GCheckBox("Generate hooks for all imported symbols through ApiResolver('module') (Alpha,Experimental)");
+		HookImportsCheckBox.setToolTipText("Generate hooks for all imported symbols. This is useful when you want to identify what external functionalities this library calls and uses. Warning: The code generated does not adhere to the rest of the code generation options.");
+
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox=new GCheckBox("Create and initialize data structures that associate the hooked addresses with function names, accessible from javascript");
-		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setToolTipText("CrGenerateNormalAddressHooksForFunctionBeginningscheckboxeate and initialize the relevant data structures, as it may be useful to be able to fetch the current function name (as visible in Ghidra) from the current address in javascript (accessible through \"this.context.pc\")");
+		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setToolTipText("Create and initialize the relevant data structures, as it may be useful to be able to fetch the current function name (as visible in Ghidra) from the current address in javascript (accessible through \"this.context.pc\")");
 		
 		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code in every hook generated:");
 		IncludeCustomTextcheckbox.setToolTipText("Adds javascript code in every hook, at the start (not present in function hook if onEnter() is removed)");
@@ -315,6 +347,11 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		IncludeInterceptorTryCatchcheckbox=new GCheckBox("Add try/catch blocks for Interceptor calls in order to not stop in case of error");
 		IncludeInterceptorTryCatchcheckbox.setToolTipText("If Frida fails to register an Interceptor, it stops and does not register any other hooks coming after the one that errors. By using a try/catch scheme, this can be bypassed. Warning: You might want to stop on error, use this option with caution.");
+		
+		
+		IncludeTIDAndIndentationcheckbox=new GCheckBox("Include threadID and code indentation on function calls");
+		IncludeTIDAndIndentationcheckbox.setToolTipText("<html>This option prints the current threadID for every function console output, and indents based on the call depth (relative to the currently hooked functions and not the total depth relative to all thread functions).<br> WARNING: If checked, the option that does not output OnEnter()/OnLeave() functions will be ignored.<html>");
+		
 		
 		DoNotHookThunkFunctionscheckbox=new GCheckBox("Do not hook Thunk Functions even if they fall into the range of the addresses to be hooked");
 		DoNotHookThunkFunctionscheckbox.setToolTipText("In case of multiple function calls, hooking Thunk functions may add too many or failed hooks, or even block the hooking of a larger function if the thunk code is close to its beginning");
@@ -341,6 +378,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		JPanel multihookPanel = new JPanel(new VerticalLayout(4));
 		JPanel multihookSubPanel1 = new JPanel(new HorizontalLayout(4));
 		JPanel multihookSubPanel2 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookSubPanel3 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookSubPanel4 = new JPanel(new HorizontalLayout(4));
 
 		
 		TitledBorder referenceBorder =
@@ -426,6 +465,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		outputPanel.add(outputSubPanel2,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel3,BorderLayout.NORTH);
 		outputPanel.add(DoNotIncludeFunParamscheckbox,BorderLayout.NORTH);
+		outputPanel.add(IncludeFunParamNamescheckbox,BorderLayout.NORTH);
 		outputPanel.add(GenerateNormalAddressHooksForFunctionBeginningscheckbox,BorderLayout.NORTH);
 		outputPanel.add(outputSubPanel4,BorderLayout.NORTH);
 		
@@ -434,26 +474,42 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		{
 			multihookSubPanel1.add(FunctionRegexCheckBox);
 			multihookSubPanel1.add(FunctionRegexTextField);
+			multihookSubPanel2.add(FunctionMangledNameRegexCheckBox);
+			multihookSubPanel2.add(FunctionMangledNameRegexTextField);
+			multihookSubPanel3.add(MemoryScanPatternCheckBox);
+			multihookSubPanel3.add(MemoryScanPatternTextField);
 			multihookPanel.add(multihookSubPanel1);
+			multihookPanel.add(multihookSubPanel2);
+			multihookPanel.add(multihookSubPanel3);
 			multihookPanel.add(HookExportsCheckBox);
+			if (false) //Hooking imports is in Alpha state
+			{
+				multihookPanel.add(HookImportsCheckBox);
+			}
 		}
 		
+		//now get the preferred size before the window grows too large vertically
+		Dimension preferred_sz=mainPanel.getPreferredSize();
+		
+		
 		multihookPanel.add(CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox);
-		multihookSubPanel2.add(IncludeCustomTextcheckbox);
-		multihookSubPanel2.add(IncludeCustomTextTextField);
-		multihookPanel.add(multihookSubPanel2);
+		multihookSubPanel4.add(IncludeCustomTextcheckbox);
+		multihookSubPanel4.add(IncludeCustomTextTextField);
+		multihookPanel.add(multihookSubPanel4);
 		multihookPanel.add(IncludeInterceptorTryCatchcheckbox,BorderLayout.NORTH);
+		multihookPanel.add(IncludeTIDAndIndentationcheckbox,BorderLayout.NORTH);
 		multihookPanel.add(DoNotHookThunkFunctionscheckbox,BorderLayout.NORTH);
 		multihookPanel.add(DoNotHookExternalFunctionscheckbox,BorderLayout.NORTH);
 		
-		mainPanel.setPreferredSize(mainPanel.getPreferredSize());
+		//mainPanel.setPreferredSize(mainPanel.getPreferredSize());
 		mainPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 		
-		
-		JScrollPane scroller = new JScrollPane(mainPanel);
+		JScrollPane scroller = new JScrollPane(mainPanel,JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scroller.getVerticalScrollBar().setUnitIncrement(10); //speed up scrolling a little bit
 		JPanel PaneltoReturn = new JPanel();
 		PaneltoReturn.setLayout(new BorderLayout());
 		PaneltoReturn.add(scroller,BorderLayout.CENTER);
+		PaneltoReturn.setPreferredSize(preferred_sz);
 		
 		return PaneltoReturn;
 	}
@@ -500,14 +556,19 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		OutputReasonForHookGenCheckbox.setEnabled(true);
 		CustomFunInterceptorHookOutputCheckbox.setEnabled(true);
 		DoNotIncludeFunParamscheckbox.setEnabled(true);
+		IncludeFunParamNamescheckbox.setEnabled(true);
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
 		FunctionRegexCheckBox.setEnabled(true);
+		FunctionMangledNameRegexCheckBox.setEnabled(true);
+		MemoryScanPatternCheckBox.setEnabled(true);
 		HookExportsCheckBox.setEnabled(true);
+		HookImportsCheckBox.setEnabled(true);
 		GenerateBacktraceCheckbox.setEnabled(true);
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
 		IncludeInterceptorTryCatchcheckbox.setEnabled(true);
+		IncludeTIDAndIndentationcheckbox.setEnabled(true);
 		DoNotHookThunkFunctionscheckbox.setEnabled(true);
 		DoNotHookExternalFunctionscheckbox.setEnabled(true);
 		OutDynamicCallReferencesfromFunctionCheckBox.setEnabled(true);
@@ -613,15 +674,28 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		if (FunctionRegexCheckBox.isEnabled() && FunctionRegexCheckBox.isSelected()) {
 			this.isFunctionRegexCheckBoxchecked=true;
 		}
+		if (FunctionMangledNameRegexCheckBox.isEnabled() && FunctionMangledNameRegexCheckBox.isSelected()) {
+			this.isFunctionMangledNameRegexCheckBoxchecked=true;
+		}
+		if (MemoryScanPatternCheckBox.isEnabled() && MemoryScanPatternCheckBox.isSelected()) {
+			this.isMemoryScanPatternCheckBoxchecked=true;
+		}
 		if (HookExportsCheckBox.isEnabled() && HookExportsCheckBox.isSelected())
 		{
 			this.isHookExportsCheckBoxchecked=true;
+		}
+		if (HookImportsCheckBox.isEnabled() && HookImportsCheckBox.isSelected())
+		{
+			this.isHookImportsCheckBoxchecked=true;
 		}
 		if (CustomFunInterceptorHookOutputCheckbox.isEnabled() && CustomFunInterceptorHookOutputCheckbox.isSelected()) {
 			this.isCustomFunInterceptorHookOutputCheckboxchecked=true;
 		}
 		if (DoNotIncludeFunParamscheckbox.isEnabled() && DoNotIncludeFunParamscheckbox.isSelected()) {
 			this.isDoNotIncludeFunParamscheckboxchecked=true;
+		}
+		if (IncludeFunParamNamescheckbox.isEnabled() && IncludeFunParamNamescheckbox.isSelected()) {
+			this.isIncludeFunParamNamescheckboxchecked=true;
 		}
 		if (GenerateNormalAddressHooksForFunctionBeginningscheckbox.isEnabled() && GenerateNormalAddressHooksForFunctionBeginningscheckbox.isSelected())
 		{
@@ -637,6 +711,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		{
 			this.isIncludeInterceptorTryCatchcheckboxchecked=true;
 		}
+		if (IncludeTIDAndIndentationcheckbox.isEnabled() && IncludeTIDAndIndentationcheckbox.isSelected())
+		{
+			this.isIncludeTIDAndIndentationcheckboxchecked=true;
+		}
 		if (DoNotHookThunkFunctionscheckbox.isEnabled() && DoNotHookThunkFunctionscheckbox.isSelected())
 		{
 			this.isDoNotHookThunkFunctionscheckboxchecked=true;
@@ -649,7 +727,17 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		if (GenerateBacktraceCheckbox.isEnabled() && GenerateBacktraceCheckbox.isSelected()) {
 			this.isGenerateBacktraceCheckboxchecked=true;
 		}
-				
+			
+		
+		//Mutual exclusion:
+		if (this.isIncludeTIDAndIndentationcheckboxchecked && this.isCustomFunInterceptorHookOutputCheckboxchecked)
+		{
+			if (this.CustomFunInterceptorHookOutputcomboBox.getSelectedIndex()==0 ||  //for OnEnter() blocking
+				this.CustomFunInterceptorHookOutputcomboBox.getSelectedIndex()==1 )   //for OnLeave() blocking
+			{
+				this.isCustomFunInterceptorHookOutputCheckboxchecked=false;
+			}
+		}
 
 		
 		close();

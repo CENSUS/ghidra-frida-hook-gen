@@ -57,6 +57,8 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.util.OperandFieldLocation;
 import ghidra.program.util.ProgramLocation;
@@ -94,7 +96,8 @@ public class HookGenerator {
 	protected AdvancedHookOptionsDialog advancedhookoptionsdialog;
 	protected int maximum_number_of_reasons_to_show=0;
 	protected HookGeneratorUtils utils;
-	
+	protected String generated_hook_for_imported_functions=""; //this variable is populated in case the relevant option for imported function hooking is enabled
+
 	
 	
 	public HookGenerator(PluginTool tool, Program incoming_program, Address incoming_address, Boolean isAdvanced, Boolean isSnippet, AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,
@@ -185,6 +188,10 @@ public class HookGenerator {
 		
 		if (this.we_are_in_the_final_hook_of_the_batch && !this.incoming_monitor.isCancelled())
 		{
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked)
+			{
+				hook_str+=this.generated_hook_for_imported_functions;  //this is a quick and dirty way, TODO: put the hooks in place using the internal data structures
+			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
 				this.utils.backpatch_reasons_for_advanced_hook_generation(); //this will update the reasons in the individual hooks
@@ -646,6 +653,7 @@ public class HookGenerator {
 			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
 			int num_of_functions_processed=0;
 			
+			
 			if (this.incoming_monitor.isCancelled()) {return;}
 			this.incoming_monitor.setMessage("Function hooking by regex...");
 			
@@ -654,6 +662,7 @@ public class HookGenerator {
 				Function newfun=fun_iter.next();
 				num_of_functions_processed++;
 				String name_of_newfun=newfun.getName(true).replace("\"", "_");
+				
 				if (pattern.matcher(name_of_newfun).matches())
 				{
 					generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex:"+regex_for_fun_name);
@@ -664,7 +673,103 @@ public class HookGenerator {
 		
 		}
 		
+		
+		/* Function (mangled) name regex hooking */
+		if (this.advancedhookoptionsdialog.isFunctionMangledNameRegexCheckBoxchecked)
+		{
+			String regex_for_fun_mangled_name=this.advancedhookoptionsdialog.FunctionMangledNameRegexTextField.getText();
+			Pattern pattern= Pattern.compile(regex_for_fun_mangled_name,Pattern.CASE_INSENSITIVE);
+			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
+			int num_of_functions_processed=0;
+			
+			if (this.incoming_monitor.isCancelled()) {return;}
+			this.incoming_monitor.setMessage("Function hooking by regex...");
+			
+			while(fun_iter!=null && fun_iter.hasNext())
+			{
+				Function newfun=fun_iter.next();
+				num_of_functions_processed++;
+				String name_of_newfun=newfun.getName(true).replace("\"", "_");
+				
+				SymbolTable incoming_symbol_table=this.incoming_program.getSymbolTable();
+				SymbolIterator symbol_interator=incoming_symbol_table.getSymbolsAsIterator(newfun.getEntryPoint());
+				while(symbol_interator!=null && symbol_interator.hasNext())
+				{
+					Symbol next_symbol=symbol_interator.next();
+					String symbol_name=next_symbol.getName();
+					if (symbol_name.startsWith("_Z") || symbol_name.startsWith("?"))
+					{
+						//Mangled Symbol. TODO: Provide a better check if a symbol is in a mangled form
+						if (pattern.matcher(symbol_name).matches())
+						{
+							generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex of mangled name:"+regex_for_fun_mangled_name);
+						}
+					}
+				}
+				
+				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+			}
+		}
+		
 		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+
+		/*Hook all imported symbols*/
+		if (this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked)
+		{
+			SymbolTable symboltable=this.current_program.getSymbolTable();
+			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
+
+
+			HashMap<String,Function> hashmap_of_functions=new HashMap<String,Function>();
+			int num_of_symbols_processed=0;
+			SymbolIterator symbol_interator=symboltable.getExternalSymbols();
+			
+			this.incoming_monitor.setMessage("Hooking imports...");
+			
+			while(fun_iter!=null && fun_iter.hasNext())
+			{
+				Function newfun=fun_iter.next();
+				if (newfun.getName(true).startsWith("<EXTERNAL>")) //getName(true) returns the namespace as well
+				{
+					hashmap_of_functions.put(newfun.getName(), newfun); //simple getName() returns the name only
+				}
+			}
+			
+			
+			String imports_hook_str="";
+			String spaces="        ";
+			String varstr_for_resolver_and_matches=this.utils.generate_random_string_from_pool(this.characters_allowed_in_variable_name,6);
+			imports_hook_str+=spaces+"var resolver_"+varstr_for_resolver_and_matches+" =new ApiResolver('module');\n";
+			imports_hook_str+=spaces+"var matches_"+varstr_for_resolver_and_matches+";\n";
+			while(symbol_interator!=null && symbol_interator.hasNext())
+			{
+				num_of_symbols_processed++;
+				
+				Symbol next_symbol=symbol_interator.next();
+				if (hashmap_of_functions.containsKey(next_symbol.getName()))
+				{
+					//we have found the function. TODO: Can the function be identified in  a better way?
+					Function identified_function=hashmap_of_functions.get(next_symbol.getName());
+					//See if function name contains illegal characters
+					//TODO: Mangled names will contain illegal characters, take that into account
+					String sanitized_fun_name=identified_function.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+					if (!sanitized_fun_name.equals(identified_function.getName()))
+					{
+						imports_hook_str+=spaces+"//Not creating import hook for function with sanitized name:"+sanitized_fun_name+" due to illegal characters\n";
+						continue;
+					}
+					//TODO: This should not call its own code, it should be integrated with the standard Interceptor.attach() hook code generator.
+					imports_hook_str+=this.utils.generate_import_hook_str_for_function(identified_function,varstr_for_resolver_and_matches,spaces);
+				}
+				
+				if (num_of_symbols_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+			}
+			this.generated_hook_for_imported_functions=imports_hook_str;
+		}
+		
+		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+		
 		
 		/*Hook all exported symbols*/
 		if (this.advancedhookoptionsdialog.isHookExportsCheckBoxchecked)
@@ -699,32 +804,20 @@ public class HookGenerator {
 		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user)
 		this.incoming_monitor.setMessage("Gathering all generated hooks in one...");
 		
-		//If we have many try/catch blocks, we should calculate the successes/failures and print them in the end
-		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeInterceptorTryCatchcheckboxchecked)
+
+		//handling the case where it is requested to make a memory scan for a specific pattern
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isMemoryScanPatternCheckBoxchecked)
 		{
-			sb.append("      var counter_for_successful_Interceptor_hooks=0;\n");
-			sb.append("      var counter_for_failed_Interceptor_hooks=0;\n");
+			InstructionSearchPatternHandler pattern_handler= new InstructionSearchPatternHandler(this.incoming_plugintool,this.current_program,this.advancedhookoptionsdialog.MemoryScanPatternTextField.getText(),this.current_program_name_sanitized,"        ");
+			sb.append(pattern_handler.return_frida_code_for_incoming_instruction_pattern());
 			sb.append("\n");
 		}
 		
-		if (this.isAdvanced && this.advancedhookoptionsdialog.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked)
-		{
-			sb.append("      var dict_from_current_addresses_to_function_names={}\n"
-					+ "      var dict_from_function_names_to_function_start_addresses={}\n"
-					+ "      var dict_from_current_addresses_to_function_start_addresses={}\n"
-					+ "      var dict_from_function_start_addresses_to_function_names={}\n"
-					+ "      var current_function_start_address=ptr(\"0x0\")\n"
-					+ "      /*\n"
-					+ "      access with: \n"
-					+ "          var current_function_name=dict_from_current_addresses_to_function_names[this.context.pc]\n"
-					+ "      check if current address is at the start of the function: \n"
-					+ "          var is_current_addr_the_start_of_the_current_function=false;\n"
-					+ "          if (this.context.pc in dict_from_current_addresses_to_function_start_addresses && dict_from_current_addresses_to_function_start_addresses[this.context.pc].equals(this.context.pc))\n"
-					+ "          {\n"
-					+ "              is_current_addr_the_start_of_the_current_function=true;\n"
-					+ "          }  \n"
-					+ "      */\n\n");
-		}
+		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user)
+		
+		//Include the variables and functions that may need declaration and apply for all the hooks
+		sb.append(this.utils.return_code_for_initialization_of_functions_and_variables_before_the_hooks());
+		
 		
 		//Now iterate over all generated hooks
 		int i;
@@ -751,7 +844,7 @@ public class HookGenerator {
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeInterceptorTryCatchcheckboxchecked)
 		{
 			sb.append("\n");
-			sb.append("      console.log('Successful Interceptor hooks:'+counter_for_successful_Interceptor_hooks+', failed Interceptor hooks:'+counter_for_failed_Interceptor_hooks);\n");
+			sb.append("        console.log('Successful Interceptor hooks:'+counter_for_successful_Interceptor_hooks+', failed Interceptor hooks:'+counter_for_failed_Interceptor_hooks);\n");
 		}
 		
 		
@@ -769,18 +862,48 @@ public class HookGenerator {
 	{
 		String hook_str="";
 
-		hook_str=hook_str.concat("      "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
+		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
 		if (this.include_onEnter_in_function_hooks)
 		{
-			hook_str=hook_str.concat("                  onEnter: function(args) {\n")
-							 .concat("                      console.log(\"Entered "+function_name_with_current_addr+"\");\n");
+			hook_str=hook_str.concat("                    onEnter: function(args) {\n")
+							 .concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Entered "+function_name_with_current_addr+"\");\n");
 			
-			/* Put the parameters in the hook */
+			boolean include_names_of_arguments=false;
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked)
+			{
+				if (parameter_count>=1)
+				{
+					if (this.utils.do_sanitized_function_argument_names_result_in_name_conflicts(current_function))
+					{
+						include_names_of_arguments=false;
+						hook_str+="                        // Conflicting sanitized names of function parameters, as such arguments will not be named\n";
+					}
+					else
+					{
+						include_names_of_arguments=true;
+						//In this case, the names of the arguments must be put inside the function and variables should be declared
+						for (int i=0;i<parameter_count;i++)
+						{
+							hook_str+="                        this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"=args["+i+"];\n";
+						}
+					}
+				}
+			}
+			
+				
+			/* Put the parameters in the hook code*/
 			if (parameter_count>=1 && this.utils.user_options_allow_printing_of_params()) {
-						   hook_str+="                      console.log('";
+						   hook_str+="                        console.log("+this.utils.tid_and_indent_code()+"'";
 						   for (int i=0;i<parameter_count;i++)
 						   {
-							   hook_str+="args["+i+"]='+args["+i+"]";
+							   if (include_names_of_arguments)
+							   {
+								   hook_str+="args["+i+"](this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+")='+args["+i+"]";
+							   }
+							   else
+							   {
+								   hook_str+="args["+i+"]='+args["+i+"]";
+							   }
 							   if (i<parameter_count-1) { hook_str+="+' , "; }
 							   else { hook_str+=");\n"; }
 						   }
@@ -788,7 +911,7 @@ public class HookGenerator {
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
 				//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-				hook_str=hook_str.concat("                      console.log(\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+				hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
@@ -796,14 +919,15 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 			{
-				hook_str=hook_str.concat("                      "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+				hook_str=hook_str.concat("                        "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
 			}
 			if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 			{
 				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
 			}
-			hook_str=hook_str.concat("                      // this.context.x0=0x1;\n")
-							 .concat("                  }");
+			hook_str=hook_str.concat("                        // this.context.x0=0x1;\n")
+							 .concat(this.utils.increase_console_indent_if_chosen())
+							 .concat("                    }");
 		}
 		if (this.include_onEnter_in_function_hooks && this.include_onLeave_in_function_hooks) 
 		{
@@ -811,16 +935,17 @@ public class HookGenerator {
 		}
 		if (this.include_onLeave_in_function_hooks)
 		{
-			hook_str=hook_str.concat("                  onLeave: function(retval) {\n")
-						 	 .concat("                      console.log(\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
-						 	 .concat("                      // retval.replace(0x1);\n")
-						 	 .concat("                  }\n");
+			hook_str=hook_str.concat("                    onLeave: function(retval) {\n")
+							 .concat(this.utils.decrease_console_indent_if_chosen())
+						 	 .concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
+						 	 .concat("                        // retval.replace(0x1);\n")
+						 	 .concat("                    }\n");
 		}
 		else
 		{
 			hook_str=hook_str.concat("\n");
 		}
-		hook_str=hook_str.concat("      }); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+		hook_str=hook_str.concat("        }); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 		
 		return hook_str;
 	}
@@ -862,23 +987,52 @@ public class HookGenerator {
 		}
 		String nativefunction_str="dynamic_address_of_"+function_name_with_current_addr+","+str_for_return_type+","+str_for_types_of_params;
 		
-		hook_str=hook_str.concat("      var NativeFunction_of_"+function_name_with_current_addr+"= new NativeFunction("+nativefunction_str+");\n");
+		hook_str=hook_str.concat("        var NativeFunction_of_"+function_name_with_current_addr+"= new NativeFunction("+nativefunction_str+");\n");
 		
-		hook_str=hook_str.concat("      "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.replace(dynamic_address_of_"+function_name_with_current_addr+",new NativeCallback(("+str_for_params_in_nativecallback+") => {\n");
+		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.replace(dynamic_address_of_"+function_name_with_current_addr+",new NativeCallback(("+str_for_params_in_nativecallback+") => {\n");
 		
-		hook_str=hook_str.concat("                      console.log(\"Entered "+function_name_with_current_addr+"\");\n");
+		hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Entered "+function_name_with_current_addr+"\");\n");
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 		{
 			//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-			hook_str=hook_str.concat("                      console.log(\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+		}
+		
+		boolean include_names_of_arguments=false;
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked)
+		{
+			if (parameter_count>=1)
+			{
+				if (this.utils.do_sanitized_function_argument_names_result_in_name_conflicts(current_function))
+				{
+					include_names_of_arguments=false;
+					hook_str+="                        // Conflicting sanitized names of function parameters, as such arguments will not be named\n";
+				}
+				else
+				{
+					include_names_of_arguments=true;
+					//In this case, the names of the arguments must be put inside the function and variables should be declared
+					for (int i=0;i<parameter_count;i++)
+					{
+						hook_str+="                        var arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"=args["+i+"];\n";
+					}
+				}
+			}
 		}
 
 		
 			if (parameter_count>=1 && this.utils.user_options_allow_printing_of_params()) {
-						   hook_str+="                      console.log('";
+						   hook_str+="                        console.log("+this.utils.tid_and_indent_code()+"'";
 						   for (int i=0;i<parameter_count;i++)
 						   {
-							   hook_str+="args["+i+"]='+arg_"+i+"";
+							   if (include_names_of_arguments)
+							   {
+								   hook_str+="args["+i+"](arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+")='+args["+i+"]";
+							   }
+							   else
+							   {
+								   hook_str+="args["+i+"]='+arg_"+i+"";
+							   }
 							   if (i<parameter_count-1) { hook_str+="+' , "; }
 							   else { hook_str+=");\n"; }
 						   }
@@ -889,24 +1043,29 @@ public class HookGenerator {
 		}
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 		{
-			hook_str=hook_str.concat("                      "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+			hook_str=hook_str.concat("                        "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
 		}
 		if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 		{
 			hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
 		}
+		
+		hook_str=hook_str.concat(this.utils.increase_console_indent_if_chosen());
 		//call the original function
-		hook_str=hook_str.concat("                      var retval=NativeFunction_of_"+function_name_with_current_addr+"("+str_for_params_in_nativecallback+");\n");
+		hook_str=hook_str.concat("                        var retval=NativeFunction_of_"+function_name_with_current_addr+"("+str_for_params_in_nativecallback+");\n");
+		
+		hook_str=hook_str.concat(this.utils.decrease_console_indent_if_chosen());
+
 		if (current_function.getReturnType().toString()!="void")
 		{
-			hook_str=hook_str.concat("                      console.log(\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n");
-			hook_str=hook_str.concat("                      return retval;\n");
+			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n");
+			hook_str=hook_str.concat("                        return retval;\n");
 		}
 		else
 		{
-			hook_str=hook_str.concat("                      console.log(\"Exited "+function_name_with_current_addr+"\");\n");
+			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+"\");\n");
 		}
-		hook_str=hook_str.concat("      },"+str_for_return_type+","+str_for_types_of_params+")); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+		hook_str=hook_str.concat("        },"+str_for_return_type+","+str_for_types_of_params+")); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 		
 		return hook_str;
 	}
@@ -1025,9 +1184,9 @@ public class HookGenerator {
 			}
 
 			//String.concat() is the fastest, but "+" is also used for code clarity. 
-			hook_str=hook_str.concat("      var offset_of_"+function_name_with_current_addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
-							 .concat("      var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
-							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("      ","dynamic_address_of_"+function_name_with_current_addr,current_function_name_sanitized,current_function));
+			hook_str=hook_str.concat("        var offset_of_"+function_name_with_current_addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
+							 .concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
+							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("        ","dynamic_address_of_"+function_name_with_current_addr,current_function_name_sanitized,current_function));
 			
 			String errors_if_interceptor_replace_is_used=this.utils.identify_errors_if_interceptor_replace_is_used(current_function,parameter_count);
 			//empty string means that no problems are identified
@@ -1053,17 +1212,17 @@ public class HookGenerator {
 			}
 					
 			//String.concat() is the fastest, but "+" is also used for code clarity.
-			hook_str=hook_str.concat("      var offset_of_"+addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
-							 .concat("      var dynamic_address_of_"+addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr+");\n")
+			hook_str=hook_str.concat("        var offset_of_"+addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
+							 .concat("        var dynamic_address_of_"+addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr+");\n")
 							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("      ","dynamic_address_of_"+addr,str_in_place_of_current_function_name_sanitized,current_function))
 
 							 
-							 .concat("      function function_to_call_when_code_reaches_"+addr+"(){\n")
-							 .concat("          console.log('Reached address 0x"+addr+str_for_current_function_if_any+"');\n");
+							 .concat("        function function_to_call_when_code_reaches_"+addr+"(){\n")
+							 .concat("            console.log("+this.utils.tid_and_indent_code()+"'Reached address 0x"+addr+str_for_current_function_if_any+"');\n");
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
 				//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-				hook_str=hook_str.concat("          console.log(\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+				hook_str=hook_str.concat("            console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
@@ -1071,16 +1230,16 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 			{
-				hook_str=hook_str.concat("          "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
+				hook_str=hook_str.concat("            "+this.advancedhookoptionsdialog.IncludeCustomTextTextField.getText()+"\n");
 			}
 			if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 			{
 				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
 			}
-			hook_str=hook_str.concat("          //this.context.x0=0x1;\n")
-							 .concat("      }\n")
+			hook_str=hook_str.concat("            //this.context.x0=0x1;\n")
+							 .concat("        }\n")
 
-							 .concat("      "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+							 .concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 
 		}
 		

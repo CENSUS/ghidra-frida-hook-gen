@@ -65,25 +65,36 @@ public class StructAccessCodeGenerationAction extends DockingAction {
 
 	protected Plugin incoming_plugin;
 	protected Program current_program;
+	protected Boolean is_recursive;
 	private ConsoleService consoleService;
 	private String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
 	
-	public StructAccessCodeGenerationAction(Plugin plugin) {
+	public StructAccessCodeGenerationAction(Plugin plugin, Boolean is_recursive) {
 		super("Create_frida_offsets_for_struct", plugin.getName(), KeyBindingType.SHARED);
 		this.incoming_plugin = plugin;
 		this.current_program=null;
+		this.is_recursive=is_recursive;
 		init();
 	}
 	
 	private void init() {
-		setPopupMenuData(
-			new MenuData(new String[] { "Create Frida offsets for struct" }, null,"Frida-Hook"));
-		setDescription("Generate Frida Offsets for this struct");
+		if (this.is_recursive)
+		{
+			setPopupMenuData(
+				new MenuData(new String[] { "Create Frida offsets for struct (and substructs)" }, null,"Frida-Hook"));
+			setDescription("Generate Frida Offsets for this struct type and its contained substruct types (but not pointed struct types)");
+		}
+		else
+		{
+			setPopupMenuData(
+					new MenuData(new String[] { "Create Frida offsets for struct (only this one)" }, null,"Frida-Hook"));
+				setDescription("Generate Frida Offsets for this struct type");
+		}
 	}
 	
 	@Override
 	public boolean isEnabledForContext(ActionContext context) {
-		/*This function not only checks if the Struct getters/setters submenu should appear (be enabled), 
+		/*This function not only checks if the Struct offsets submenu should appear (be enabled), 
 		 * it also initializes the the "this.current_program" variable
 		 */
 		
@@ -137,7 +148,7 @@ public class StructAccessCodeGenerationAction extends DockingAction {
 		Structure dt_as_structure = (Structure) dt;
 		
 		
-		StructAccessCodeGenerator structaccesscodegenerator=new StructAccessCodeGenerator(this.incoming_plugin.getTool(),this.current_program,dt_as_structure,false,false,true);
+		StructAccessCodeGenerator structaccesscodegenerator=new StructAccessCodeGenerator(this.incoming_plugin.getTool(),this.current_program,dt_as_structure,new String[0],this.is_recursive,false,true);
 		
 		String hook_str=structaccesscodegenerator.generate_hook_str();  //this will also handle the output, as it is initialized with that option set to true
 	}

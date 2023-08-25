@@ -132,7 +132,11 @@ public class FridaHookGeneratorPlugin extends ProgramPlugin {
 		tool.addAction(SearchSelectionAction);
 		
 		/*And the plugin part which allows for generation of code for struct getters and setters*/
-		StructAccessAction=new StructAccessCodeGenerationAction(this);
+		StructAccessAction=new StructAccessCodeGenerationAction(this,false);
+		tool.addAction(StructAccessAction);
+		
+		/*And the same thing, but also recursively for substructs*/ 
+		StructAccessAction=new StructAccessCodeGenerationAction(this,true);
 		tool.addAction(StructAccessAction);
 				
 	}

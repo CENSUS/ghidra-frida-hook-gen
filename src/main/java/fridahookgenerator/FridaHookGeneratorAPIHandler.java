@@ -30,6 +30,7 @@
 package fridahookgenerator;
 
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
@@ -54,7 +55,7 @@ apihandler=FridaHookGeneratorAPIHandler(state.getTool(),currentProgram,"0073b575
 hook_str=apihandler.perform_hook_generation()
 
 
-The list of addresses must be given as a string of hex (Ghidra) addresses, without 0x in the front.
+The list of addresses must be given as a string of hex (Ghidra) addresses, without 0x in the front. If their negative value is given (e.g. -0073b575), then the address is explicitly excluded from hooking.
 This will spawn an AdvancedHookOptionsDialog whose options will be used to hook all the addresses.
 
 That dialog can also be customized programmatically (in that case, it will not be shown, and also the hook will not be shown into the console, as the user will have to print it):
@@ -88,11 +89,15 @@ for dt in datatypemanager.getAllDataTypes():
 		hook_str=apihandler.perform_hook_generation()
 		print(hook_str)
 
+You can also put structure paths which will be explicitly excluded from the offset generation:
+		apihandler=FridaHookGeneratorAPIHandler(state.getTool(),currentProgram,dt,"/ELF/Gnu_DebugLink,/ELF/Elf64_Sym",True,False);  
+
  */
 
 public class FridaHookGeneratorAPIHandler {
 
 	private ArrayList<CodeUnit> incoming_list_of_CodeUnits;
+	private ArrayList<CodeUnit> incoming_list_of_CodeUnits_to_exclude;
 	private Program current_program;
 	private PluginTool incoming_plugintool;
 	private AdvancedHookOptionsDialog advancedhookoptionsdialog;
@@ -100,6 +105,7 @@ public class FridaHookGeneratorAPIHandler {
 	private Boolean was_invoked_to_generate_offsets_for_struct;
 	private Boolean was_invoked_to_generate_hook_for_addresses;
 	private Structure incoming_structure;
+	private String[] list_of_paths_to_be_excluded;
 	private Boolean should_recurse_on_struct_offset_generation;
 	private Boolean should_output_on_struct_offset_generation;
 	
@@ -113,7 +119,7 @@ public class FridaHookGeneratorAPIHandler {
 		this.was_invoked_to_generate_offsets_for_struct=false;
 		this.was_invoked_to_generate_hook_for_addresses=true;
 		this.incoming_list_of_CodeUnits=extract_codeunits_from_string_of_addresses(list_of_addresses);
-		
+		this.incoming_list_of_CodeUnits_to_exclude=extract_codeunits_to_be_excluded_from_string_of_addresses(list_of_addresses);
 	}
 	
 	public FridaHookGeneratorAPIHandler(PluginTool plugintool, Program incoming_program,String list_of_addresses, AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog) {
@@ -125,7 +131,7 @@ public class FridaHookGeneratorAPIHandler {
 		this.was_invoked_to_generate_offsets_for_struct=false;
 		this.was_invoked_to_generate_hook_for_addresses=true;
 		this.incoming_list_of_CodeUnits=extract_codeunits_from_string_of_addresses(list_of_addresses);
-		
+		this.incoming_list_of_CodeUnits_to_exclude=extract_codeunits_to_be_excluded_from_string_of_addresses(list_of_addresses);
 	}
 	
 	public FridaHookGeneratorAPIHandler(PluginTool plugintool, Program incoming_program,Structure incoming_structure, Boolean should_recurse ,Boolean should_output ) {
@@ -138,6 +144,24 @@ public class FridaHookGeneratorAPIHandler {
 		this.incoming_structure=incoming_structure;
 		this.should_recurse_on_struct_offset_generation=should_recurse;
 		this.should_output_on_struct_offset_generation=should_output;
+		this.list_of_paths_to_be_excluded=new String[0];
+	}
+	
+	public FridaHookGeneratorAPIHandler(PluginTool plugintool, Program incoming_program,Structure incoming_structure,String list_of_paths_to_be_excluded, Boolean should_recurse ,Boolean should_output ) {
+		
+		this.current_program=incoming_program;
+		this.incoming_plugintool=plugintool;
+		this.was_invoked_with_defined_advancedhookoptionsdialog=false;
+		this.was_invoked_to_generate_offsets_for_struct=true;
+		this.was_invoked_to_generate_hook_for_addresses=false;
+		this.incoming_structure=incoming_structure;
+		this.should_recurse_on_struct_offset_generation=should_recurse;
+		this.should_output_on_struct_offset_generation=should_output;
+		this.list_of_paths_to_be_excluded=list_of_paths_to_be_excluded.split(",");
+		for (int i=0;i<this.list_of_paths_to_be_excluded.length;i++)
+		{
+			this.list_of_paths_to_be_excluded[i]=this.list_of_paths_to_be_excluded[i].strip();
+		}
 	}
 	
 	
@@ -149,28 +173,70 @@ public class FridaHookGeneratorAPIHandler {
 		
 		for (int i=0;i<str_parts.length;i++)
 		{
-			//try to decode 
-			long tmplong=-1;
-			try {
-				tmplong=Long.parseLong(str_parts[i],16);
-			}
-			catch (NumberFormatException ex)
+
+			if (str_parts[i].indexOf("-")<0)  //if '-' is present, we must ignore the address
 			{
-				//nothing, this address will not be put into the list
-			}
-			if (tmplong!=-1)
-			{
-				//a Program may have multiple addresses spaces, but we will only take the address belongng to the first. TODO
-				Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(str_parts[i]);
-				if (array_of_addresses_for_this_addr.length>0 && current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0])!=null)
+				//try to decode 
+				long tmplong=-1;
+				try {
+					tmplong=Long.parseLong(str_parts[i],16);
+				}
+				catch (NumberFormatException ex)
 				{
-					retval.add(current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0]));
+					//nothing, this address will not be put into the list
+				}
+				if (tmplong!=-1)
+				{
+					//a Program may have multiple addresses spaces, but we will only take the address belonging to the first. TODO
+					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(str_parts[i]);
+					if (array_of_addresses_for_this_addr.length>0 && current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0])!=null)
+					{
+						retval.add(current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0]));
+					}
 				}
 			}
 		}
 		
 		return retval;
 	}
+	
+	ArrayList<CodeUnit> extract_codeunits_to_be_excluded_from_string_of_addresses(String list_of_addresses)
+	{
+		ArrayList<CodeUnit> retval=new ArrayList<CodeUnit>(); 
+		String[] str_parts=list_of_addresses.split(",");
+		Listing current_program_listing=this.current_program.getListing();
+		
+		for (int i=0;i<str_parts.length;i++)
+		{
+
+			if (str_parts[i].indexOf("-")==0)  //we must only put into the retval the addresses that have a negative number
+			{
+				//try to decode 
+				long tmplong=-1;
+				try {
+					tmplong=Long.parseLong(str_parts[i],16);
+				}
+				catch (NumberFormatException ex)
+				{
+					//nothing, this address will not be put into the list
+				}
+				if (tmplong!=-1)
+				{
+					//a Program may have multiple addresses spaces, but we will only take the address belongng to the first. TODO
+					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(str_parts[i].substring(1));
+					if (array_of_addresses_for_this_addr.length>0 && current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0])!=null)
+					{
+						retval.add(current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0]));
+					}
+				}
+			}
+		}
+		
+		//return the distinct code units
+		return (ArrayList<CodeUnit>) retval.stream().distinct().collect(Collectors.toList());
+	}
+	
+	
 	
 	public String perform_hook_generation()
 	{
@@ -181,11 +247,11 @@ public class FridaHookGeneratorAPIHandler {
 			SelectionHookGenerationTaskDispatcher dispatcher;
 			if (this.was_invoked_with_defined_advancedhookoptionsdialog)
 			{
-				dispatcher= new SelectionHookGenerationTaskDispatcher(this.incoming_plugintool,this.current_program,this.incoming_list_of_CodeUnits,this.advancedhookoptionsdialog);
+				dispatcher= new SelectionHookGenerationTaskDispatcher(this.incoming_plugintool,this.current_program,this.incoming_list_of_CodeUnits,this.incoming_list_of_CodeUnits_to_exclude,this.advancedhookoptionsdialog);
 			}
 			else
 			{
-				dispatcher= new SelectionHookGenerationTaskDispatcher(this.incoming_plugintool,this.current_program,this.incoming_list_of_CodeUnits);
+				dispatcher= new SelectionHookGenerationTaskDispatcher(this.incoming_plugintool,this.current_program,this.incoming_list_of_CodeUnits,this.incoming_list_of_CodeUnits_to_exclude);
 			}
 			
 			retval= dispatcher.perform_selection_hook_action();
@@ -194,7 +260,7 @@ public class FridaHookGeneratorAPIHandler {
 		
 		if (this.was_invoked_to_generate_offsets_for_struct)
 		{
-			StructAccessCodeGenerator structaccesscodegen=new StructAccessCodeGenerator(this.incoming_plugintool,this.current_program,this.incoming_structure,this.should_recurse_on_struct_offset_generation,true,this.should_output_on_struct_offset_generation);
+			StructAccessCodeGenerator structaccesscodegen=new StructAccessCodeGenerator(this.incoming_plugintool,this.current_program,this.incoming_structure,this.list_of_paths_to_be_excluded,this.should_recurse_on_struct_offset_generation,true,this.should_output_on_struct_offset_generation);
 			retval=structaccesscodegen.generate_hook_str(); //will output if configured
 		}
 		

@@ -37,6 +37,7 @@ import docking.action.KeyBindingType;
 import ghidra.app.services.ConsoleService;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
@@ -46,6 +47,7 @@ public class SelectionHookGenerationTaskDispatcher {
 	
 	private PluginTool incoming_plugintool;
 	private ArrayList<CodeUnit> incoming_selection;
+	private ArrayList<CodeUnit> incoming_selection_to_exclude;
 	private Program current_program;
 	private Boolean is_invoked_with_a_created_advancedhookoptions_dialog;
 	private AdvancedHookOptionsDialog once_off_advanced_hook_options_dialog;
@@ -53,16 +55,18 @@ public class SelectionHookGenerationTaskDispatcher {
 	private InternalStructuresForHookGeneration internal_structures_for_hook_generation;
 	private SelectionBatchHookGenerationTask selectionbatch_hook_generation_task;
 	
-	public SelectionHookGenerationTaskDispatcher(PluginTool plugintool, Program incoming_program,ArrayList<CodeUnit> selected_code_units_to_hook) {
+	public SelectionHookGenerationTaskDispatcher(PluginTool plugintool, Program incoming_program,ArrayList<CodeUnit> selected_code_units_to_hook, ArrayList<CodeUnit> selected_code_units_to_exclude) {
 		this.incoming_plugintool = plugintool;
 		this.incoming_selection=selected_code_units_to_hook;
+		this.incoming_selection_to_exclude=selected_code_units_to_exclude;
 		this.current_program=incoming_program;
 		this.is_invoked_with_a_created_advancedhookoptions_dialog=false;
 	}
 	
-	public SelectionHookGenerationTaskDispatcher(PluginTool plugintool, Program incoming_program,ArrayList<CodeUnit> selected_code_units_to_hook, AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog) {
+	public SelectionHookGenerationTaskDispatcher(PluginTool plugintool, Program incoming_program,ArrayList<CodeUnit> selected_code_units_to_hook,ArrayList<CodeUnit> selected_code_units_to_exclude, AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog) {
 		this.incoming_plugintool = plugintool;
 		this.incoming_selection=selected_code_units_to_hook;
+		this.incoming_selection_to_exclude=selected_code_units_to_exclude;
 		this.current_program=incoming_program;
 		this.is_invoked_with_a_created_advancedhookoptions_dialog=true;
 		this.once_off_advanced_hook_options_dialog=incoming_advancedhookoptionsdialog;
@@ -103,6 +107,19 @@ public class SelectionHookGenerationTaskDispatcher {
 		//use data structures that are common across all hook generation calls
 		this.internal_structures_for_hook_generation=new InternalStructuresForHookGeneration();
 		
+		//put the addresses to be excluded inside the data structures (they are unique)
+		for (int i=0;i<this.incoming_selection_to_exclude.size();i++)
+		{
+			Address tmpaddr=this.incoming_selection_to_exclude.get(i).getAddress();
+			String in_place_of_hook=" //Address:"+tmpaddr+", explicitly excluded from hooking\n";
+			String reason_for_hook_generation="Explicitly excluded from hooking";
+			//manual insertion for the address in the structures. This code effectively clones the main part of the function HookGeneratorUtils::update_internal_data_structures() . TODO: do not repeat code 
+			this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch++;
+			String tmpstr=String.valueOf(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"|"+reason_for_hook_generation;
+			this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(tmpaddr.toString(),tmpstr); //this is the initial placement of this address in the Addresses_for_current_hook_str data structure
+			this.internal_structures_for_hook_generation.addresses_for_which_hook_is_generated_in_order_of_appearance.add(tmpaddr);
+			this.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.add(in_place_of_hook);
+		}
 		
 		if (this.consoleService!=null)
 		{

@@ -50,9 +50,10 @@ public class StructAccessCodeGenerator {
 	HashMap <String,String> included_structures;
 	Boolean is_invoked_programmatically_from_the_api;
 	Boolean should_output;
+	String[] list_of_paths_to_be_excluded;
 	
 	public StructAccessCodeGenerator(PluginTool incoming_plugintool, Program current_program, Structure incoming_structure, 
-			Boolean is_recursive_call , Boolean is_invoked_programmatically , Boolean should_output ) {
+			String[] list_of_paths_to_be_excluded,Boolean is_recursive_call , Boolean is_invoked_programmatically , Boolean should_output ) {
 		
 		this.incoming_plugintool=incoming_plugintool;
 		this.current_program=current_program;
@@ -62,6 +63,22 @@ public class StructAccessCodeGenerator {
 		this.is_invoked_programmatically_from_the_api=is_invoked_programmatically;
 		this.should_output=should_output;		
 		this.consoleService=incoming_plugintool.getService(ConsoleService.class); 
+		this.list_of_paths_to_be_excluded=new String[list_of_paths_to_be_excluded.length];
+		for (int i=0;i<list_of_paths_to_be_excluded.length;i++)
+		{
+			this.list_of_paths_to_be_excluded[i]=list_of_paths_to_be_excluded[i];
+			this.included_structures.put(list_of_paths_to_be_excluded[i], "already_included");
+		}
+	}
+	
+	
+	protected Boolean is_structure_empty(Structure in_struct)
+	{
+		if (in_struct.getNumComponents()==0 || in_struct.isZeroLength())
+		{
+			return true;
+		}
+		return false;
 	}
 	
 	
@@ -70,6 +87,7 @@ public class StructAccessCodeGenerator {
 		String hook_str="";
 		DataTypeComponent[] components = in_struct.getComponents(); //all components, even filler fields
 		
+		//generate recursive hooks for subcomponents
 		for (int i=0;i<components.length;i++)
 		{
 			if (components[i].getDataType() instanceof Structure && !this.included_structures.containsKey(components[i].getDataType().getPathName())) 
@@ -80,7 +98,11 @@ public class StructAccessCodeGenerator {
 			}
 		}
 		
-		hook_str+=generate_hook_str_for_one_struct(in_struct);
+		//now generate proper hook for ourselves
+		if (!this.included_structures.containsKey(in_struct.getPathName()))
+		{
+			hook_str+=generate_hook_str_for_one_struct(in_struct,true);
+		}
 		
 		return hook_str;
 		
@@ -93,7 +115,7 @@ public class StructAccessCodeGenerator {
 		
 		if (!this.is_recursive_call)
 		{
-			hook_str+=generate_hook_str_for_one_struct(this.incoming_structure); 
+			hook_str+=generate_hook_str_for_one_struct(this.incoming_structure,false); 
 		}
 		else
 		{
@@ -109,7 +131,7 @@ public class StructAccessCodeGenerator {
 		
 	}
 
-	protected String generate_hook_str_for_one_struct(Structure dt_as_structure)
+	protected String generate_hook_str_for_one_struct(Structure dt_as_structure, Boolean initialize_subcomponent_members)
 	{
 		
 		String hook_str="";
@@ -123,9 +145,9 @@ public class StructAccessCodeGenerator {
 		int total_size=dt_as_structure.getLength();
 		boolean is_packed=dt_as_structure.isPackingEnabled();
 		
-		if (num_of_components==0 || dt_as_structure.isZeroLength()) 
+		if (is_structure_empty(dt_as_structure)) 
 		{
-			String str_to_ret="//Structure has 0 components or reported as having 0 length";
+			String str_to_ret="//Structure "+name_of_struct+" has 0 components or reported as having 0 length\n";
 			return str_to_ret;
 		}
 		
@@ -135,25 +157,36 @@ public class StructAccessCodeGenerator {
 		int[] list_of_offsets_in_bytes=new int[num_of_components];
 		int[] list_of_lengths_in_bytes=new int[num_of_components];
 		boolean[] is_bitfied= new boolean[num_of_components];
+		boolean[] component_returns_valid_hook= new boolean[num_of_components];
+		int last_position_of_component_which_returns_valid_hook=-1;
 		
 		/*Iterate over all components and store them into the arrays*/
 		for (int i=0;i<num_of_components;i++)
 		{
 			DataTypeComponent dataTypeComponent=dt_as_structure.getComponent(i);
 			String fieldname=dataTypeComponent.getFieldName();
-			if (fieldname!=null)
+			if ( fieldname==null || fieldname.strip().equals(""))
 			{
-				fieldnames[i]=fieldname.replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+				fieldnames[i]="unnamed_field_at_position_"+(i+1);
 			}
 			else
 			{
-				fieldnames[i]="unnamed_field_at_position_"+(i+1);
+				fieldnames[i]=fieldname.replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
 			}
 			field_displaynames_for_types[i]=dataTypeComponent.getDataType().getDisplayName().replace("\n", " ");
 			field_descriptions_for_types[i]=dataTypeComponent.getDataType().getDescription().replace("\n", " ");
 			list_of_offsets_in_bytes[i]=dataTypeComponent.getOffset();
 			list_of_lengths_in_bytes[i]=dataTypeComponent.getLength();
 			is_bitfied[i]=dataTypeComponent.isBitFieldComponent();
+			if (dataTypeComponent.getDataType() instanceof Structure && !is_structure_empty((Structure) dataTypeComponent.getDataType()))
+			{
+				component_returns_valid_hook[i]=true;
+				last_position_of_component_which_returns_valid_hook=i;
+			}
+			else
+			{
+				component_returns_valid_hook[i]=false;
+			}
 		}
 		
 		hook_str ="class struct_"+name_of_struct+" {\n";
@@ -196,6 +229,26 @@ public class StructAccessCodeGenerator {
 		}
 	
 		hook_str+="        }\n";
+		if (initialize_subcomponent_members && last_position_of_component_which_returns_valid_hook>-1) //check if at least one component will return a valid hook
+		{
+			hook_str+="        this.members = {\n";
+			
+			for (int i=0;i<num_of_components;i++)
+			{
+				String addcomma=",";
+				if (component_returns_valid_hook[i])
+				{
+					String full_name_of_component=dt_as_structure.getComponent(i).getDataType().getPathName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+					if (i==last_position_of_component_which_returns_valid_hook)
+					{
+						addcomma=""; //do not add it at the end
+					}
+					hook_str+="            "+fieldnames[i]+" : new struct_"+full_name_of_component+"(this.layout."+fieldnames[i]+")"+addcomma+"  \n";
+				}		
+			}
+		
+			hook_str+="        }\n";
+		}
 		hook_str+="    }\n";
 		
 		

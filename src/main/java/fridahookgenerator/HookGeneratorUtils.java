@@ -31,12 +31,14 @@ package fridahookgenerator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Random;
 import java.util.Set;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.listing.Parameter;
 
 /*
  * Sister class of HookGenerator, containing many useful functions that are called sometime in its code. It receives a reference to it and uses its internal variables.
@@ -46,7 +48,6 @@ public class HookGeneratorUtils {
 
 	private HookGenerator incoming_hook_generator;
 	private String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-
 	
 	public HookGeneratorUtils(HookGenerator incoming_hook_generator)
 	{
@@ -61,9 +62,9 @@ public class HookGeneratorUtils {
 		if (!this.incoming_hook_generator.isAdvanced || (this.incoming_hook_generator.isAdvanced && !this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked) || (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==0))
 		{
 			//default method
-			hook_str+="      \n";
-			hook_str+="      Interceptor.flush();\n"
-					+ "      console.log(\"Registered interceptors.\");\n"
+			hook_str+="        \n";
+			hook_str+="        Interceptor.flush();\n"
+					+ "        console.log(\"Registered interceptors.\");\n"
 					+ "    }, 2000);//milliseconds\n"
 					+ "}\n"
 					+ "start_timer_for_intercept();\n";
@@ -72,9 +73,9 @@ public class HookGeneratorUtils {
 				this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==2 )
 		{
 			//dlopen() or LoadLibrary() method
-			hook_str+="      \n"
-					+ "      Interceptor.flush();\n"
-					+ "      console.log(\"Registered interceptors.\");\n"
+			hook_str+="        \n"
+					+ "    Interceptor.flush();\n"
+					+ "    console.log(\"Registered interceptors.\");\n"
 					+ "}\n";
 		}
 		
@@ -95,9 +96,9 @@ public class HookGeneratorUtils {
 			hook_str+="function start_timer_for_intercept() {\n"
 					+ "  setTimeout(\n"
 					+ "    function() {\n"
-					+ "      console.log(\"Registering interceptors...\");\n";
-			hook_str+="      \n";
-			hook_str+="      \n";
+					+ "        console.log(\"Registering interceptors...\");\n";
+			hook_str+="        \n";
+			hook_str+="        \n";
 		}
 		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==1)
 		{
@@ -119,7 +120,7 @@ public class HookGeneratorUtils {
 					+ "\n"
 					+ "function do_the_dlopen_interception(incoming_export)\n"
 					+ "{\n"
-					+ "    try "
+					+ "    try \n"
 					+ "    {\n"
 					+ "        Interceptor.attach(incoming_export.address, {\n"
 					+ "            onEnter: function(args) {\n"
@@ -172,8 +173,8 @@ public class HookGeneratorUtils {
 					+ "\n"
 					+ "function register_interceptors()\n"
 					+ "{\n"
-					+ "      console.log(\"Registering interceptors...\");\n"
-					+ "      \n\n";
+					+ "    console.log(\"Registering interceptors...\");\n"
+					+ "    \n\n";
 			
 		}
 		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==2)
@@ -257,14 +258,106 @@ public class HookGeneratorUtils {
 					+ "\n"
 					+ "function register_interceptors()\n"
 					+ "{\n"
-					+ "      console.log(\"Registering interceptors...\");\n"
-					+ "      \n\n";
+					+ "    console.log(\"Registering interceptors...\");\n"
+					+ "    \n\n";
 		}
 		return hook_str;
 		
 	}
 	
 	
+	protected String return_code_for_initialization_of_functions_and_variables_before_the_hooks()
+	{
+		String retval="";
+
+		//If we have many try/catch blocks, we should calculate the successes/failures and print them in the end
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeInterceptorTryCatchcheckboxchecked)
+		{
+			retval+="        var counter_for_successful_Interceptor_hooks=0;\n";
+			retval+="        var counter_for_failed_Interceptor_hooks=0;\n";
+			retval+="\n";
+		}
+		
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked)
+		{
+			retval += "        var dict_from_current_addresses_to_function_names={}\n"
+					+ "        var dict_from_function_names_to_function_start_addresses={}\n"
+					+ "        var dict_from_current_addresses_to_function_start_addresses={}\n"
+					+ "        var dict_from_function_start_addresses_to_function_names={}\n"
+					+ "        var current_function_start_address=ptr(\"0x0\")\n"
+					+ "        /*\n"
+					+ "        access with: \n"
+					+ "            var current_function_name=dict_from_current_addresses_to_function_names[this.context.pc]\n"
+					+ "        check if current address is at the start of the function: \n"
+					+ "            var is_current_addr_the_start_of_the_current_function=false;\n"
+					+ "            if (this.context.pc in dict_from_current_addresses_to_function_start_addresses && dict_from_current_addresses_to_function_start_addresses[this.context.pc].equals(this.context.pc))\n"
+					+ "            {\n"
+					+ "                is_current_addr_the_start_of_the_current_function=true;\n"
+					+ "            }  \n"
+					+ "        */\n\n";
+		}
+		
+		
+		//handling the case where threadID and indentation are requested
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeTIDAndIndentationcheckboxchecked)
+		{
+			retval += "        var dict_with_thread_indentation_levels={}\n"
+					+ "        function tid_and_indent(thiz) {\n"
+					+ "            var current_threadid=Process.getCurrentThreadId()\n"
+					+ "            if (current_threadid in dict_with_thread_indentation_levels) {\n"
+					+ "                return ('TID '+current_threadid+': ').padEnd(14)+dict_with_thread_indentation_levels[current_threadid]+'('+thiz.depth+')'\n"
+					+ "            } else {\n"
+					+ "                dict_with_thread_indentation_levels[current_threadid]=''\n"
+					+ "                return ('TID '+current_threadid+': ').padEnd(14)+'('+thiz.depth+')'\n"
+					+ "            } \n"
+					+ "        }\n"
+					+ "        function increase_indent() {\n"
+					+ "            var current_threadid=Process.getCurrentThreadId()\n"
+					+ "            if (current_threadid in dict_with_thread_indentation_levels) {\n"
+					+ "                dict_with_thread_indentation_levels[current_threadid]=dict_with_thread_indentation_levels[current_threadid]+'  '\n"
+					+ "            } else {\n"
+					+ "                dict_with_thread_indentation_levels[current_threadid]=''\n"
+					+ "            } \n"
+					+ "        }\n"
+					+ "        function decrease_indent() {\n"
+					+ "            var current_threadid=Process.getCurrentThreadId()\n"
+					+ "            if (current_threadid in dict_with_thread_indentation_levels) {\n"
+					+ "                dict_with_thread_indentation_levels[current_threadid]=dict_with_thread_indentation_levels[current_threadid].slice(0,-2)\n"
+					+ "            } else {  //we must never enter the else clause\n"
+					+ "                dict_with_thread_indentation_levels[current_threadid]=''\n"
+					+ "            } \n"
+					+ "        }\n\n";
+		}
+		
+		return retval;
+	}
+	
+	protected String tid_and_indent_code()
+	{
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeTIDAndIndentationcheckboxchecked)
+		{
+			return "tid_and_indent(this)+";
+		}
+		return "";
+	}
+	
+	protected String increase_console_indent_if_chosen()
+	{
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeTIDAndIndentationcheckboxchecked)
+		{
+			return "                        increase_indent()\n";
+		}
+		return "";
+	}
+	
+	protected String decrease_console_indent_if_chosen()
+	{
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeTIDAndIndentationcheckboxchecked)
+		{
+			return "                        decrease_indent()\n";
+		}
+		return "";
+	}
 	
 
 	protected ArrayList<ContainerForFunctionReferences> handle_outgoing_references_for_one_depth_level(ArrayList<ContainerForFunctionReferences> incoming_functions_from_previous_level,int current_depth)
@@ -495,12 +588,12 @@ public class HookGeneratorUtils {
 		}
 		if (current_function.hasVarArgs())
 		{
-			hook_str=hook_str.concat("      //Current function has variadic number of arguments, interceptor.replace not supported yet\n");
+			hook_str=hook_str.concat("        //Current function has variadic number of arguments, interceptor.replace not supported yet\n");
 			return hook_str;
 		}
 		if (current_function.getReturnType()==null)
 		{
-			hook_str=hook_str.concat("      //Current function has undefined type of return value\n");
+			hook_str=hook_str.concat("        //Current function has undefined type of return value\n");
 			return hook_str;
 		}
 		
@@ -508,7 +601,7 @@ public class HookGeneratorUtils {
 		//void is not ZeroLength, but getLength returns 0
 		if (current_function.getReturnType().isZeroLength() || (current_function.getReturnType().toString()!="void" && size_of_returntype!=1 && size_of_returntype!=2 && size_of_returntype!=4 && size_of_returntype!=8)  )
 		{
-			hook_str=hook_str.concat("      //Current function has an unaccepted return type:"+current_function.getReturnType().toString()+"\n");
+			hook_str=hook_str.concat("        //Current function has an unaccepted return type:"+current_function.getReturnType().toString()+"\n");
 			return hook_str;
 		}
 		
@@ -528,6 +621,45 @@ public class HookGeneratorUtils {
 		return hook_str;
 	}
 	
+	
+	
+	protected String return_sanitized_name_of_parameter_for_function_at_position(Function incoming_function, int i)
+	{
+		String retval="";
+		int num_of_params=incoming_function.getParameterCount();
+		Parameter param;
+		if (i>=0 && i<num_of_params)
+		{
+			param=incoming_function.getParameter(i);
+		}
+		else
+		{
+			retval= "invalid_param";
+			return retval;
+		}
+		String sanitized_param_name=param.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+		retval=sanitized_param_name;
+		return retval;
+	}
+	
+	
+	
+	protected Boolean do_sanitized_function_argument_names_result_in_name_conflicts(Function incoming_function)
+	{
+		boolean retval=false;
+		int num_of_params=incoming_function.getParameterCount();
+		ArrayList<String> sanitized_param_names= new ArrayList<String>();
+		for (int i=0;i<num_of_params;i++)
+		{
+			String new_param_name=return_sanitized_name_of_parameter_for_function_at_position(incoming_function,i);
+			if (sanitized_param_names.contains(new_param_name))
+			{
+				return true;
+			}
+			sanitized_param_names.add(new_param_name);
+		}
+		return retval;
+	}
 	
 	
 
@@ -678,8 +810,52 @@ public class HookGeneratorUtils {
 		return retval;
 	}
 	
+	protected String generate_random_string_from_pool(String pool,int length)
+	{
+		String retval="";
+		Random random=new Random();
+		for (int i=0;i<length;i++)
+		{
+			int select = random.nextInt(pool.length());
+			retval+=pool.charAt(select);
+		}
+		return retval;
+	}
 	
 	
+	protected String generate_import_hook_str_for_function(Function incoming_function,String varstr_for_resolver_and_matches,String spaces)
+	{
+		String retval="";
+		int parameter_count=incoming_function.getParameterCount();
+		String sanitized_fun_name=incoming_function.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+		retval+=spaces+"matches_"+varstr_for_resolver_and_matches+"=resolver_"+varstr_for_resolver_and_matches+".enumerateMatches('exports:*!"+incoming_function.getName()+"');\n";
+		retval+=spaces+"if (matches_"+varstr_for_resolver_and_matches+".length>0)\n";
+		retval+=spaces+"{\n";
+		retval+=spaces+"    var first_match=matches_"+varstr_for_resolver_and_matches+"[0];\n";
+		retval+=spaces+"    var dynamic_address_of_import_"+sanitized_fun_name+"=first_match.address;\n";
+		retval+=spaces+"    Interceptor.attach(dynamic_address_of_import_"+sanitized_fun_name+", {\n"
+			   +spaces+"                    onEnter: function(args) {\n"
+			   +spaces+"                        console.log(\"Entered import_"+sanitized_fun_name+"\");\n";
+		if (parameter_count>=1)
+		{
+			retval+=spaces+"                        console.log('";
+			for (int i=0;i<parameter_count;i++)
+			{
+				retval+="args["+i+"]='+args["+i+"]";
+				if (i<parameter_count-1) { retval+="+' , "; }
+				else { retval+=");\n"; }
+			}
+		}
+		retval+=spaces+"                        // this.context.x0=0x1;\n"
+			  +spaces+ "                    },\n"
+			  +spaces+ "                    onLeave: function(retval) {\n"
+			  +spaces+ "                        console.log(\"Exited import_"+sanitized_fun_name+", retval:\"+retval);\n"
+			  +spaces+ "                        // retval.replace(0x1);\n"
+			  +spaces+ "                    }\n"
+			  +spaces+ "        }); \n";
+		retval+=spaces+"}\n";
+		return retval;
+	}
 
 	
 	protected void backpatch_reasons_for_advanced_hook_generation()
@@ -741,16 +917,16 @@ public class HookGeneratorUtils {
 						String spaces="";
 						if (options_for_computed_call_or_jump=="simple instruction")
 						{
-							spaces="          ";
+							spaces="            ";
 						}
 						else
 						{
 							//options_for_computed_call_or_jump=="start of function"
-							spaces="                      ";
+							spaces="                        ";
 						}
 						String arg_of_call=newinstr.toString().split(" ",2)[1].toLowerCase().trim();  //remove of CALL/BLR... and get the rest, the argument
 						String mnemonic_of_command=newinstr.getMnemonicString().toLowerCase().trim();
-						ComputedCallHookGenerator hookgenerator=new ComputedCallHookGenerator(this.incoming_hook_generator.current_program,newaddr,mnemonic_of_command,arg_of_call,"module_name_"+this.incoming_hook_generator.current_program_name_sanitized);
+						ComputedCallHookGenerator hookgenerator=new ComputedCallHookGenerator(this.incoming_hook_generator,this.incoming_hook_generator.current_program,newaddr,mnemonic_of_command,arg_of_call,"module_name_"+this.incoming_hook_generator.current_program_name_sanitized);
 						hook_to_replace_later_code_placeholder=hook_to_replace_later_code_placeholder.concat(hookgenerator.provide_hook_code(spaces));
 					}
 					//Other possible reasons can go here
@@ -792,12 +968,12 @@ public class HookGeneratorUtils {
 		if (called_from_function_start)
 		{
 			ctx="this.context";
-			spaces="                      ";
+			spaces="                        ";
 		}
 		else
 		{ 
 			ctx="null";
-			spaces="          ";
+			spaces="            ";
 		}
 
 		if (this.incoming_hook_generator.advancedhookoptionsdialog.GenerateBacktracecomboBox.getSelectedIndex()==0
@@ -811,9 +987,9 @@ public class HookGeneratorUtils {
 			bt="Backtracer.FUZZY";
 		}
 		
-		hook_str=hook_str.concat(spaces+"console.log(\"Backtrace:\"+");
+		hook_str=hook_str.concat(spaces+"console.log("+this.tid_and_indent_code()+"\"Backtrace:\"+");
 		hook_str=hook_str.concat("Thread.backtrace("+ctx+", "+bt+")"
-								+ ".map(DebugSymbol.fromAddress).join('\\n') + '\\n');\n");
+								+ ".map(DebugSymbol.fromAddress).join('\\n'+"+this.tid_and_indent_code()+"'') + '\\n');\n");
 		return hook_str;
 	}
 	
