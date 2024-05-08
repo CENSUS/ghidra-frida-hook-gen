@@ -41,6 +41,10 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
 
+
+/* 
+ * This class handles the case where a selection of addresses is submitted for code generation.
+ */
 public class SelectionBatchHookGenerationTask extends Task {
 
 

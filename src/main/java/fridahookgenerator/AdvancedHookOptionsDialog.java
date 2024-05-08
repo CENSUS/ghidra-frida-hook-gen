@@ -65,6 +65,11 @@ import ghidra.util.exception.AssertException;
 import ghidra.util.layout.HorizontalLayout;
 import ghidra.util.layout.VerticalLayout;
 
+
+/*
+ * This class is responsible for creating the window of the Advanced Hook options, but also serves as the object
+ * that is passed around containing the user's advanced options, from which the hook is generated.
+ */
 public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 	private PluginTool tool;
@@ -292,7 +297,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		CustomFunInterceptorHookOutputCheckbox = new GCheckBox("In case of hook generation for functions:");
 		CustomFunInterceptorHookOutputCheckbox.setToolTipText("This option allows to modify the way the function interceptor hook generation is done. WARNING: If checked with the option that includes threadIDs and indentation, blocking of OnEnter()/OnLeave() will not happen.");
-		String[] ways_to_alter_function_interceptor_hook= {"Do not include onEnter()","Do not include onLeave()","use Interceptor.replace() (EXPERIMENTAL!)"};
+		String[] ways_to_alter_function_interceptor_hook= {"Do not include onEnter()","Do not include onLeave()","use Interceptor.replace() (Experimental)"};
 		CustomFunInterceptorHookOutputcomboBox=new JComboBox<>(ways_to_alter_function_interceptor_hook);
 		
 		DoNotIncludeFunParamscheckbox=new GCheckBox("In case of hook generation for functions, do not print their parameters");
@@ -312,7 +317,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		GenerateScriptCheckbox.setMnemonic('S');
 		GenerateScriptCheckbox.setToolTipText(
 				"Generate Hook Script and not Snippet, that means, add prologue and epilogue");
-		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method (EXPERIMENTAL)", "LoadLibrary() method (EXPERIMENTAL)"};
+		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method)"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");
@@ -324,7 +329,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		FunctionRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful");
 		FunctionRegexTextField=new JTextField(10);
 		
-		FunctionMangledNameRegexCheckBox=new GCheckBox("Generate hooks for functions whose *mangled* name matches the following (case insensitive) regular expression (Experimental):");
+		FunctionMangledNameRegexCheckBox=new GCheckBox("Generate hooks for functions whose *mangled* name matches the following (case insensitive) regular expression:");
 		FunctionMangledNameRegexCheckBox.setToolTipText("In the case where the function names are known, similarly named functions may fall under the same functional block, and hooking all of them can be useful. This option makes the regex also apply in the parameters (through the mangled name)");
 		FunctionMangledNameRegexTextField=new JTextField(10);
 		
@@ -335,7 +340,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		HookExportsCheckBox=new GCheckBox("Generate hooks for all exported symbols");
 		HookExportsCheckBox.setToolTipText("Generate hooks for all exported symbols which can be entry points. This is useful when you want to identify from which point a shared library is entered.");
 		
-		HookImportsCheckBox=new GCheckBox("Generate hooks for all imported symbols through ApiResolver('module') (Alpha,Experimental)");
+		HookImportsCheckBox=new GCheckBox("Generate hooks for all imported symbols through ApiResolver('module')");
 		HookImportsCheckBox.setToolTipText("Generate hooks for all imported symbols. This is useful when you want to identify what external functionalities this library calls and uses. Warning: The code generated does not adhere to the rest of the code generation options.");
 
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox=new GCheckBox("Create and initialize data structures that associate the hooked addresses with function names, accessible from javascript");
@@ -482,7 +487,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 			multihookPanel.add(multihookSubPanel2);
 			multihookPanel.add(multihookSubPanel3);
 			multihookPanel.add(HookExportsCheckBox);
-			if (false) //Hooking imports is in Alpha state
+			if (true) //Hooking imports toggle
 			{
 				multihookPanel.add(HookImportsCheckBox);
 			}

@@ -54,17 +54,27 @@ import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.ExternalLocation;
+import ghidra.program.model.symbol.ExternalManager;
 import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.model.symbol.SymbolType;
 import ghidra.program.util.OperandFieldLocation;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.Msg;
 import ghidra.util.task.TaskMonitor;
 
+
+/*
+ * This is the main class that performs the hook generation, iterating over all possible options and modifying
+ * the hook code as configured. In the simple case (where isAdvanced is false), it simply calls the standard
+ * generation function and returns.
+ * It heavily depends on the sister class HookGeneratorUtils.
+ */
 public class HookGenerator {
 
 	protected PluginTool incoming_plugintool;
@@ -190,7 +200,7 @@ public class HookGenerator {
 		{
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked)
 			{
-				hook_str+=this.generated_hook_for_imported_functions;  //this is a quick and dirty way, TODO: put the hooks in place using the internal data structures
+				hook_str+=this.generated_hook_for_imported_functions;  //this is a quick and dirty way
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
@@ -691,21 +701,12 @@ public class HookGenerator {
 				num_of_functions_processed++;
 				String name_of_newfun=newfun.getName(true).replace("\"", "_");
 				
-				SymbolTable incoming_symbol_table=this.incoming_program.getSymbolTable();
-				SymbolIterator symbol_interator=incoming_symbol_table.getSymbolsAsIterator(newfun.getEntryPoint());
-				while(symbol_interator!=null && symbol_interator.hasNext())
+				String find_mangled_name=this.utils.return_mangled_name_for_specific_address(this.incoming_program,newfun.getEntryPoint(),pattern);
+				if (!find_mangled_name.equals(""))
 				{
-					Symbol next_symbol=symbol_interator.next();
-					String symbol_name=next_symbol.getName();
-					if (symbol_name.startsWith("_Z") || symbol_name.startsWith("?"))
-					{
-						//Mangled Symbol. TODO: Provide a better check if a symbol is in a mangled form
-						if (pattern.matcher(symbol_name).matches())
-						{
-							generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex of mangled name:"+regex_for_fun_mangled_name);
-						}
-					}
+					generate_snippet_hook_for_address(newfun.getEntryPoint(),false,"Function hook to function "+name_of_newfun+" due to matching regex of mangled name:"+regex_for_fun_mangled_name);
 				}
+
 				
 				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
@@ -717,25 +718,14 @@ public class HookGenerator {
 		if (this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked)
 		{
 			SymbolTable symboltable=this.current_program.getSymbolTable();
-			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
 
-
-			HashMap<String,Function> hashmap_of_functions=new HashMap<String,Function>();
+			HashMap<Function,String> hashmap_of_functions=new HashMap<Function,String>();
 			int num_of_symbols_processed=0;
 			SymbolIterator symbol_interator=symboltable.getExternalSymbols();
 			
 			this.incoming_monitor.setMessage("Hooking imports...");
 			
-			while(fun_iter!=null && fun_iter.hasNext())
-			{
-				Function newfun=fun_iter.next();
-				if (newfun.getName(true).startsWith("<EXTERNAL>")) //getName(true) returns the namespace as well
-				{
-					hashmap_of_functions.put(newfun.getName(), newfun); //simple getName() returns the name only
-				}
-			}
-			
-			
+						
 			String imports_hook_str="";
 			String spaces="        ";
 			String varstr_for_resolver_and_matches=this.utils.generate_random_string_from_pool(this.characters_allowed_in_variable_name,6);
@@ -746,22 +736,58 @@ public class HookGenerator {
 				num_of_symbols_processed++;
 				
 				Symbol next_symbol=symbol_interator.next();
-				if (hashmap_of_functions.containsKey(next_symbol.getName()))
+				boolean found_in_hashmap_of_functions=false;
+				if (next_symbol.getSymbolType()==SymbolType.FUNCTION && next_symbol.isExternal())
 				{
-					//we have found the function. TODO: Can the function be identified in  a better way?
-					Function identified_function=hashmap_of_functions.get(next_symbol.getName());
-					//See if function name contains illegal characters
-					//TODO: Mangled names will contain illegal characters, take that into account
-					String sanitized_fun_name=identified_function.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
-					if (!sanitized_fun_name.equals(identified_function.getName()))
+					found_in_hashmap_of_functions=true;
+					Address addr_of_symbol=next_symbol.getProgramLocation().getAddress();
+					Function identified_function=this.current_program.getFunctionManager().getFunctionAt(addr_of_symbol);
+					
+															
+					//If the function has been processed, and we don't have a mangled symbol or the stored symbol is mangled, continue
+					//This is done to put preference in mangled symbols
+					if (hashmap_of_functions.containsKey(identified_function) &&
+							(!this.utils.is_symbol_name_mangled_name(next_symbol.getName()) ||
+							 this.utils.is_symbol_name_mangled_name(hashmap_of_functions.get(identified_function))
+							 )
+						)
 					{
-						imports_hook_str+=spaces+"//Not creating import hook for function with sanitized name:"+sanitized_fun_name+" due to illegal characters\n";
+						continue; //already processed that function
+					}
+					
+					//However, if it is not processed OR the symbol is a mangled one and we haven't seen such a symbol before, then process
+					
+					
+					//We must take into account a possible mangled name for that symbol
+					ExternalManager extmanager=this.current_program.getExternalManager();
+					ExternalLocation extlocation=extmanager.getExternalLocation(next_symbol);
+					String effective_symbol_name=next_symbol.getName();
+					if (extlocation!=null && extlocation.getOriginalImportedName()!=null && this.utils.is_symbol_name_mangled_name(extlocation.getOriginalImportedName()))
+					{
+						effective_symbol_name=extlocation.getOriginalImportedName();
+					}
+					hashmap_of_functions.put(identified_function,effective_symbol_name); //now, put into hashmap
+					
+					//See if symbol name contains illegal characters
+					String sanitized_symbol_name_with_at_colon_tilde_qmark_dollar=effective_symbol_name.replaceAll("[^"+this.characters_allowed_in_variable_name+"\\:\\@\\~\\?\\$"+"]", "_");
+					if (!sanitized_symbol_name_with_at_colon_tilde_qmark_dollar.equals(effective_symbol_name))
+					{
+						imports_hook_str+=spaces+"//Not creating import hook for function with sanitized name:"+sanitized_symbol_name_with_at_colon_tilde_qmark_dollar+" due to illegal characters\n";
 						continue;
 					}
+					int parameter_count=identified_function.getParameterCount();
+					String raw_function_name=sanitized_symbol_name_with_at_colon_tilde_qmark_dollar; //we have passed a sanitization process
+					String properly_sanitized_function_name=identified_function.getName(true).replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_"); //this time, sanitize it properly so that it can get into a variable
+					String sanitized_export_module_name_regex="*"; //can be anywhere
+					
+					if (next_symbol.getName(true).toLowerCase().contains(".dll::")) // in Windows, we may have the module name
+					{
+						sanitized_export_module_name_regex="*"+this.utils.return_sanitized_module_name_regex_for_dll_external_function_import(next_symbol.getName(true).toLowerCase());
+					}
+						
 					//TODO: This should not call its own code, it should be integrated with the standard Interceptor.attach() hook code generator.
-					imports_hook_str+=this.utils.generate_import_hook_str_for_function(identified_function,varstr_for_resolver_and_matches,spaces);
+					imports_hook_str+=this.utils.generate_import_hook_str_for_function(raw_function_name,properly_sanitized_function_name,parameter_count,sanitized_export_module_name_regex,varstr_for_resolver_and_matches,spaces);
 				}
-				
 				if (num_of_symbols_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
 			this.generated_hook_for_imported_functions=imports_hook_str;

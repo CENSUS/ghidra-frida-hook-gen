@@ -39,6 +39,10 @@ import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 
+/*
+ * This class generates code for struct fields, to make their access easier from javascript.
+ */
+
 public class StructAccessCodeGenerator {
 
 	private PluginTool incoming_plugintool;

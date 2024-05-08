@@ -33,15 +33,21 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Random;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
 
 /*
- * Sister class of HookGenerator, containing many useful functions that are called sometime in its code. It receives a reference to it and uses its internal variables.
+ * Sister class of HookGenerator, containing many useful functions that are called sometime in its code. 
+ * It receives a reference to it and uses its internal variables.
  */
  
 public class HookGeneratorUtils {
@@ -823,12 +829,11 @@ public class HookGeneratorUtils {
 	}
 	
 	
-	protected String generate_import_hook_str_for_function(Function incoming_function,String varstr_for_resolver_and_matches,String spaces)
+	protected String generate_import_hook_str_for_function(String raw_function_name, String properly_sanitized_function_name, int parameter_count,String sanitized_export_module_name, String varstr_for_resolver_and_matches,String spaces)
 	{
 		String retval="";
-		int parameter_count=incoming_function.getParameterCount();
-		String sanitized_fun_name=incoming_function.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
-		retval+=spaces+"matches_"+varstr_for_resolver_and_matches+"=resolver_"+varstr_for_resolver_and_matches+".enumerateMatches('exports:*!"+incoming_function.getName()+"');\n";
+		String sanitized_fun_name=properly_sanitized_function_name;
+		retval+=spaces+"matches_"+varstr_for_resolver_and_matches+"=resolver_"+varstr_for_resolver_and_matches+".enumerateMatches('exports:"+sanitized_export_module_name+"!"+raw_function_name+"/i');\n"; //use the raw name in the exports search, it is sanitized enough from caller
 		retval+=spaces+"if (matches_"+varstr_for_resolver_and_matches+".length>0)\n";
 		retval+=spaces+"{\n";
 		retval+=spaces+"    var first_match=matches_"+varstr_for_resolver_and_matches+"[0];\n";
@@ -856,7 +861,54 @@ public class HookGeneratorUtils {
 		retval+=spaces+"}\n";
 		return retval;
 	}
+	
+	boolean is_symbol_name_mangled_name(String symbol_name)
+	{
+		//Mangled Symbol. TODO: Provide a better check if a symbol is in a mangled form
+		if (symbol_name.startsWith("_Z") || symbol_name.startsWith("?"))
+		{
+			return true;
+		}
+		return false;
+	}
 
+	String return_mangled_name_for_specific_address(Program incoming_program,Address incoming_address, Pattern pattern_to_match)
+	{
+		SymbolTable incoming_symbol_table=incoming_program.getSymbolTable();
+		SymbolIterator symbol_interator=incoming_symbol_table.getSymbolsAsIterator(incoming_address);
+		while(symbol_interator!=null && symbol_interator.hasNext())
+		{
+			Symbol next_symbol=symbol_interator.next();
+			String symbol_name=next_symbol.getName();
+			if (is_symbol_name_mangled_name(symbol_name))
+			{
+				
+				if (pattern_to_match.matcher(symbol_name).matches())
+				{
+					return symbol_name;
+				}
+			}
+		}
+		return "";
+	}
+	
+	String return_sanitized_module_name_regex_for_dll_external_function_import(String full_symbol_name)
+	{
+		String retval="*"; //match any module
+		if (!full_symbol_name.toLowerCase().contains(".dll::"))
+		{
+			return retval;
+		}
+		String[] split_values=full_symbol_name.toLowerCase().split("\\.dll\\:\\:",0);
+		String dll_name=split_values[0];
+		String sanitized_dll_name_with_dot=dll_name.toLowerCase().replaceAll("[^"+this.characters_allowed_in_variable_name+"\\."+"]", "_");
+		if (!sanitized_dll_name_with_dot.equals(dll_name.toLowerCase()))
+		{
+			return retval;
+		}
+		retval=sanitized_dll_name_with_dot+".dll";
+		return retval;
+	}
 	
 	protected void backpatch_reasons_for_advanced_hook_generation()
 	{
@@ -974,6 +1026,13 @@ public class HookGeneratorUtils {
 		{ 
 			ctx="null";
 			spaces="            ";
+		}
+		
+		//in case of Inerceptor.replace()
+		if (this.incoming_hook_generator.advancedhookoptionsdialog.isCustomFunInterceptorHookOutputCheckboxchecked &&
+				this.incoming_hook_generator.advancedhookoptionsdialog.CustomFunInterceptorHookOutputcomboBox.getSelectedIndex()==2)
+		{
+			ctx="null";
 		}
 
 		if (this.incoming_hook_generator.advancedhookoptionsdialog.GenerateBacktracecomboBox.getSelectedIndex()==0
