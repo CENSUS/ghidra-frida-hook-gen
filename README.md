@@ -15,7 +15,7 @@ It should be noted that the right-click should be done when hovering over the in
 #### Installation:
 
 - Take the latest ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside the folder dist/ .
-- From Ghidra (before opening a tool) -> File -> Install Extensions -> + sign -> Select the folder -> Make sure the frida_hook_generator is checked in the list of extensions
+- From Ghidra (before opening a tool) -> File -> Install Extensions -> + sign -> Select the zip -> Make sure the FridaHookGenerator is checked in the list of extensions
 - Restart Ghidra
 - Open CodeBrowser tool and analyze a binary. When asked if the new plugin should be configured, press "Yes" and make sure it is ticked. 
 
@@ -39,7 +39,7 @@ It should be noted that the right-click should be done when hovering over the in
 - The generated script attempts to display a hooked function's parameters when it is called. However, usually the "Listing" window which contains the assembly code, does not reflect that parameter number. As such, the generated script will not contain code to print the correct number of parameters (usually it does not recognize any parameter, and as such it does not print anything). The solution to fix this is to right click on a function's name on the Ghidra "Decompiler" window, and select "Commit Params/Return". Then, the "Listing" window will recognize the correct number of parameters.
 
 
-- The plugin also offers the ability to generate hooks for multiple addresses, as they have been identify from Ghidra's Search or other grouping options . First a selection must be created (Right click -> Make Selection), and then a new option is provided that can generate hooks for all the selected addresses. In effect, an Advanced Hook Generation dialog will be spawned that takes all the selected addresses as inputs. If for example the option "Generate hooks for addresses (statically) referencing the current address" is selected, then hooks for all the references of all the selected addresses will be generated.
+- The plugin also offers the ability to generate hooks for multiple addresses, as they have been identified from Ghidra's Search or other grouping options . First a selection must be created (Right click -> Make Selection), and then a new option is provided that can generate hooks for all the selected addresses. In effect, an Advanced Hook Generation dialog will be spawned that takes all the selected addresses as inputs. If for example the option "Generate hooks for addresses (statically) referencing the current address" is selected, then hooks for all the references of all the selected addresses will be generated.
   
   
   
