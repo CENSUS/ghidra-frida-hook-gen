@@ -88,17 +88,68 @@ function start_timer_for_intercept() {
 start_timer_for_intercept();
 ```
 
-If the option "Copy Frida Hook Snippet" is used, only the part in the middle will be returned (between the first `console.log()` and the `Interceptor.flush()`). 
+If the option "Copy Frida Hook Snippet" is used, only the part in the middle will be returned (between the first `console.log()` and the `Interceptor.flush()`).  
 The code when hooking a random address that is not the first address in a function looks like the following:
 
 ```
-        var offset_of_0043246c=0x3246c;
-        var dynamic_address_of_0043246c=Module.findBaseAddress(module_name_vlc_exe).add(offset_of_0043246c);
-        function function_to_call_when_code_reaches_0043246c(){
-            console.log('Reached address 0x0043246c, which is inside function FUN_00432450');
-            //this.context.x0=0x1;
-        }
-        Interceptor.attach(dynamic_address_of_0043246c, function_to_call_when_code_reaches_0043246c); 
+    var offset_of_0043246c=0x3246c;
+    var dynamic_address_of_0043246c=Module.findBaseAddress(module_name_vlc_exe).add(offset_of_0043246c);
+    function function_to_call_when_code_reaches_0043246c(){
+        console.log('Reached address 0x0043246c, which is inside function FUN_00432450');
+        //this.context.x0=0x1;
+    }
+    Interceptor.attach(dynamic_address_of_0043246c, function_to_call_when_code_reaches_0043246c); 
 
 ```
 
+
+The generated code that provides easy access to a struct's fields looks like the following:
+
+```
+class struct__time_h_timespec {
+    constructor(baseaddr) {
+        this.alignment = 8
+        this.is_packed = true
+        this.base = baseaddr
+        this.total_size = 16
+        this.layout = {
+            tv_sec : this.base.add(0),   //__time_t, size:8 - Signed Long Integer (compiler-specific size)
+            tv_nsec : this.base.add(8)   //long, size:8 - Signed Long Integer (compiler-specific size)
+        }
+        this.offsets = {
+            tv_sec : 0,   //__time_t, size:8
+            tv_nsec : 8   //long, size:8
+        }
+    }
+}
+
+class struct__time_h_itimerspec {
+    constructor(baseaddr) {
+        this.alignment = 8
+        this.is_packed = true
+        this.base = baseaddr
+        this.total_size = 32
+        this.layout = {
+            it_interval : this.base.add(0),   //timespec, size:16 - 
+            it_value : this.base.add(16)   //timespec, size:16 - 
+        }
+        this.offsets = {
+            it_interval : 0,   //timespec, size:16
+            it_value : 16   //timespec, size:16
+        }
+        this.members = {
+            it_interval : new struct__time_h_timespec(this.layout.it_interval),  
+            it_value : new struct__time_h_timespec(this.layout.it_value)  
+        }
+    }
+}
+```
+
+
+#### Example usage videos :
+
+- [Basic Usage](https://youtu.be/LYsQzS2YqxE)
+- [Reference Hooking](https://youtu.be/dB5k1yc9ve0)
+- [Hook Imports](https://youtu.be/y62RG7cSJ-s)
+- [Hook multiple functions by regex](https://youtu.be/Pv4zg1Bmyr8)
+- [Printing reasons for hooking](https://youtu.be/hMWGYJSCvtA)
