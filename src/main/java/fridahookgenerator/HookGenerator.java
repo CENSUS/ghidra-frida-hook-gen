@@ -107,7 +107,7 @@ public class HookGenerator {
 	protected int maximum_number_of_reasons_to_show=0;
 	protected HookGeneratorUtils utils;
 	protected String generated_hook_for_imported_functions=""; //this variable is populated in case the relevant option for imported function hooking is enabled
-
+	protected Boolean problems_encountered_with_chatgpt=false;
 	
 	
 	public HookGenerator(PluginTool tool, Program incoming_program, Address incoming_address, Boolean isAdvanced, Boolean isSnippet, AdvancedHookOptionsDialog incoming_advancedhookoptionsdialog,
@@ -655,6 +655,7 @@ public class HookGenerator {
 		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 
 		
+
 		/* Function name regex hooking */
 		if (this.advancedhookoptionsdialog.isFunctionRegexCheckBoxchecked)
 		{
@@ -683,7 +684,95 @@ public class HookGenerator {
 		
 		}
 		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 		
+		/* Hooking by regular expression provided by ChatGPT */
+		if (this.advancedhookoptionsdialog.isAIChatFunctionRegexCheckBoxchecked)
+		{
+			String category_to_be_provided_to_chatgpt=this.advancedhookoptionsdialog.AIChatFunctionRegexTextField.getText();
+			int num_of_functions_processed=0;
+			
+			if (this.incoming_monitor.isCancelled()) {return;}
+			this.incoming_monitor.setMessage("Gathering function names for ChatGPT...");
+			
+			//First, gather all the function names
+			ArrayList<String> arraylist_with_fun_names=new ArrayList<String>();
+			ArrayList<Function> arraylist_with_functions=new ArrayList<Function>();
+			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
+			
+			while(fun_iter!=null && fun_iter.hasNext())
+			{
+				Function newfun=fun_iter.next();
+				num_of_functions_processed++;
+				//the name will be altered, ChatGPT may have problems with colons, dollar signs etc
+				String name_of_newfun=newfun.getName(true).replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
+				arraylist_with_fun_names.add(name_of_newfun);
+				arraylist_with_functions.add(newfun);
+				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+			}
+			
+			//Now, send all the function names to chatGPT
+			
+			if (this.incoming_monitor.isCancelled()) {return;}
+			this.incoming_monitor.setMessage("Sending function names to ChatGPT...");
+			
+			ChatGPTAPICaller gpt=new ChatGPTAPICaller(this.incoming_monitor);
+			if (gpt.apiKey.equals("API_KEY_PLACEHOLDER"))
+			{
+				//the api key was not found
+				System.out.println("ChatGPT API key not found.");
+				this.problems_encountered_with_chatgpt=true;
+			}
+			else
+			{
+				String final_reply=gpt.askchatGPT_multiplemessages(category_to_be_provided_to_chatgpt,arraylist_with_fun_names);
+				System.out.println(final_reply);
+				if (final_reply=="CANCELLED")
+				{
+					//task monitor was cancelled
+					return;
+				}
+				
+				Boolean received_valid_reply=false;
+				String final_list_of_nums_str="";
+				if (final_reply.indexOf("\\n")<0)
+				{
+					final_list_of_nums_str=final_reply;
+					received_valid_reply=true;
+				}
+				if (final_reply.split("\\\\n").length>=2)
+				{
+					final_list_of_nums_str=final_reply.split("\\\\n")[1];
+					received_valid_reply=true;
+				}
+				
+				if (received_valid_reply)
+				{
+					
+					String[] arr_of_numbers=final_list_of_nums_str.split(",");
+					System.out.println(final_list_of_nums_str);
+					
+					for (int i=0;i<arr_of_numbers.length;i++)
+					{
+						Function fun_to_include=arraylist_with_functions.get(Integer.parseInt(arr_of_numbers[i].trim()));
+						String fun_name_to_include=arraylist_with_fun_names.get(Integer.parseInt(arr_of_numbers[i].trim()));
+						generate_snippet_hook_for_address(fun_to_include.getEntryPoint(),false,"Function hook to function "+fun_name_to_include+" due to being related to category "+category_to_be_provided_to_chatgpt.replace("\"", "")+" according to ChatGPT");
+
+					}
+				}
+				else {
+					//The returned reply was not in the expected format
+					System.out.println("The returned ChatGPT reply was not in the expected format.");
+					this.problems_encountered_with_chatgpt=true;
+				}
+			}
+		}
+		
+		
+		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
+		
+		
+
 		/* Function (mangled) name regex hooking */
 		if (this.advancedhookoptionsdialog.isFunctionMangledNameRegexCheckBoxchecked)
 		{
@@ -873,6 +962,13 @@ public class HookGenerator {
 			sb.append("        console.log('Successful Interceptor hooks:'+counter_for_successful_Interceptor_hooks+', failed Interceptor hooks:'+counter_for_failed_Interceptor_hooks);\n");
 		}
 		
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isAIChatFunctionRegexCheckBoxchecked && this.problems_encountered_with_chatgpt)
+		{
+			sb.append("\n");
+			sb.append("        //A problem was encountered with ChatGPT communication, no hooks were generated by that option\n");
+			sb.append("        //Please make sure that the API key is at the first line of the file ~/.ghidra/chatgpt_apikey.txt .\n");
+		}
+		
 		
 		hook_str=sb.toString();
 		if (this.consoleService!=null)
@@ -962,8 +1058,14 @@ public class HookGenerator {
 		if (this.include_onLeave_in_function_hooks)
 		{
 			hook_str=hook_str.concat("                    onLeave: function(retval) {\n")
-							 .concat(this.utils.decrease_console_indent_if_chosen())
-						 	 .concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
+							 .concat(this.utils.decrease_console_indent_if_chosen());
+			
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextAftercheckboxchecked)
+			{
+				hook_str=hook_str.concat("                        "+this.advancedhookoptionsdialog.IncludeCustomTextAfterTextField.getText()+"\n");
+			}
+			
+			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n")
 						 	 .concat("                        // retval.replace(0x1);\n")
 						 	 .concat("                    }\n");
 		}
@@ -1065,7 +1167,7 @@ public class HookGenerator {
 			}
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 		{
-			hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(true));
+			hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(false));
 		}
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 		{
@@ -1082,6 +1184,11 @@ public class HookGenerator {
 		
 		hook_str=hook_str.concat(this.utils.decrease_console_indent_if_chosen());
 
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextAftercheckboxchecked)
+		{
+			hook_str=hook_str.concat("                        "+this.advancedhookoptionsdialog.IncludeCustomTextAfterTextField.getText()+"\n");
+		}
+		
 		if (current_function.getReturnType().toString()!="void")
 		{
 			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n");
@@ -1261,6 +1368,10 @@ public class HookGenerator {
 			if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 			{
 				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+			}
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextAftercheckboxchecked)
+			{
+				hook_str=hook_str.concat("            "+this.advancedhookoptionsdialog.IncludeCustomTextAfterTextField.getText()+"\n");
 			}
 			hook_str=hook_str.concat("            //this.context.x0=0x1;\n")
 							 .concat("        }\n")

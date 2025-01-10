@@ -161,6 +161,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public JCheckBox IncludeCustomTextcheckbox;
 	public Boolean isIncludeCustomTextcheckboxchecked;
 	public JTextField IncludeCustomTextTextField;
+	public JCheckBox IncludeCustomTextAftercheckbox;
+	public Boolean isIncludeCustomTextAftercheckboxchecked;
+	public JTextField IncludeCustomTextAfterTextField;
 	public JCheckBox IncludeInterceptorTryCatchcheckbox;
 	public Boolean isIncludeInterceptorTryCatchcheckboxchecked;
 	public JCheckBox IncludeTIDAndIndentationcheckbox;
@@ -169,6 +172,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public Boolean isDoNotHookThunkFunctionscheckboxchecked;
 	public JCheckBox DoNotHookExternalFunctionscheckbox;
 	public Boolean isDoNotHookExternalFunctionscheckboxchecked;
+	public JCheckBox AIChatFunctionRegexCheckBox;
+	public Boolean isAIChatFunctionRegexCheckBoxchecked;
+	public JTextField AIChatFunctionRegexTextField;
 	
 	private Program current_program;
 	private Address addr;
@@ -206,6 +212,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isHookImportsCheckBoxchecked=false;
 		this.isGenerateBacktraceCheckboxchecked=false;
 		this.isIncludeCustomTextcheckboxchecked=false;
+		this.isIncludeCustomTextAftercheckboxchecked=false;
 		this.isOutDynamicCallReferencesfromFunctionCheckBoxchecked=false;
 		this.isOutDynamicCallReferencesfromAddressCheckBoxchecked=false;
 		this.isIncludeInterceptorTryCatchcheckboxchecked=false;
@@ -214,6 +221,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isDoNotHookExternalFunctionscheckboxchecked=false;
 		this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=false;
 		this.isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked=false;
+		this.isAIChatFunctionRegexCheckBoxchecked=false;
 		
 		addWorkPanel(create());
 		setFocusComponent(ReferencestoAddressCheckBox);
@@ -346,9 +354,13 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox=new GCheckBox("Create and initialize data structures that associate the hooked addresses with function names, accessible from javascript");
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setToolTipText("Create and initialize the relevant data structures, as it may be useful to be able to fetch the current function name (as visible in Ghidra) from the current address in javascript (accessible through \"this.context.pc\")");
 		
-		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code in every hook generated:");
+		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code at the start of every hook generated:");
 		IncludeCustomTextcheckbox.setToolTipText("Adds javascript code in every hook, at the start (not present in function hook if onEnter() is removed)");
 		IncludeCustomTextTextField=new JTextField(30);
+		
+		IncludeCustomTextAftercheckbox=new GCheckBox("Add the following javascript code at the end of every hook generated:");
+		IncludeCustomTextAftercheckbox.setToolTipText("Adds javascript code in every hook, at the end (not present in function hook if onLeave() is removed)");
+		IncludeCustomTextAfterTextField=new JTextField(30);
 		
 		IncludeInterceptorTryCatchcheckbox=new GCheckBox("Add try/catch blocks for Interceptor calls in order to not stop in case of error");
 		IncludeInterceptorTryCatchcheckbox.setToolTipText("If Frida fails to register an Interceptor, it stops and does not register any other hooks coming after the one that errors. By using a try/catch scheme, this can be bypassed. Warning: You might want to stop on error, use this option with caution.");
@@ -365,6 +377,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		DoNotHookExternalFunctionscheckbox.setToolTipText("In case of multiple function calls, hooking External functions may add too many or failed hooks, or even block the hooking of a larger function if the external function code is close to its beginning");
 		
 
+		AIChatFunctionRegexCheckBox=new GCheckBox("(Requires ChatGPT API Key) Generate hooks for functions, whose name is related to ");
+		AIChatFunctionRegexCheckBox.setToolTipText("<html>This option reqires a ChatGPT API Key placed in the file ~/.ghidra/chatgpt_apikey.txt.<br> It queries the chatbot, *SENDS TO IT ALL THE FUNCTION NAMES*, and asks it to create a regular expression that matches the user-provided category.<br> For example, the category may be \"jailbreak detection\". <html>");
+		AIChatFunctionRegexTextField=new JTextField(10);
+		
 		
 		JPanel mainPanel = new JPanel(new VerticalLayout(30));
 		//mainPanel.setPreferredSize(new Dimension(980,650));  //if not enough, make larger
@@ -385,6 +401,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		JPanel multihookSubPanel2 = new JPanel(new HorizontalLayout(4));
 		JPanel multihookSubPanel3 = new JPanel(new HorizontalLayout(4));
 		JPanel multihookSubPanel4 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookSubPanel5 = new JPanel(new HorizontalLayout(4));
+		JPanel multihookSubPanel6 = new JPanel(new HorizontalLayout(4));
 
 		
 		TitledBorder referenceBorder =
@@ -501,10 +519,21 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		multihookSubPanel4.add(IncludeCustomTextcheckbox);
 		multihookSubPanel4.add(IncludeCustomTextTextField);
 		multihookPanel.add(multihookSubPanel4);
+		multihookSubPanel5.add(IncludeCustomTextAftercheckbox);
+		multihookSubPanel5.add(IncludeCustomTextAfterTextField);
+		multihookPanel.add(multihookSubPanel5);
 		multihookPanel.add(IncludeInterceptorTryCatchcheckbox,BorderLayout.NORTH);
 		multihookPanel.add(IncludeTIDAndIndentationcheckbox,BorderLayout.NORTH);
 		multihookPanel.add(DoNotHookThunkFunctionscheckbox,BorderLayout.NORTH);
 		multihookPanel.add(DoNotHookExternalFunctionscheckbox,BorderLayout.NORTH);
+		
+		//currently, ChatGPT cannot handle the amount of functions, the feature is not enabled 
+		if (false && !is_invoked_from_selecting_multiple_addresses)
+		{
+			multihookSubPanel6.add(AIChatFunctionRegexCheckBox);
+			multihookSubPanel6.add(AIChatFunctionRegexTextField);
+			multihookPanel.add(multihookSubPanel6);
+		}
 		
 		//mainPanel.setPreferredSize(mainPanel.getPreferredSize());
 		mainPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
@@ -572,12 +601,14 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		GenerateBacktraceCheckbox.setEnabled(true);
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
+		IncludeCustomTextAftercheckbox.setEnabled(true);
 		IncludeInterceptorTryCatchcheckbox.setEnabled(true);
 		IncludeTIDAndIndentationcheckbox.setEnabled(true);
 		DoNotHookThunkFunctionscheckbox.setEnabled(true);
 		DoNotHookExternalFunctionscheckbox.setEnabled(true);
 		OutDynamicCallReferencesfromFunctionCheckBox.setEnabled(true);
 		OutDynamicCallReferencesfromAddressCheckBox.setEnabled(true);
+		AIChatFunctionRegexCheckBox.setEnabled(true);
 
 		clearStatusText();
 
@@ -712,6 +743,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		if (IncludeCustomTextcheckbox.isEnabled() && IncludeCustomTextcheckbox.isSelected()) {
 			this.isIncludeCustomTextcheckboxchecked=true;
 		}
+		if (IncludeCustomTextAftercheckbox.isEnabled() && IncludeCustomTextAftercheckbox.isSelected()) {
+			this.isIncludeCustomTextAftercheckboxchecked=true;
+		}
 		if (IncludeInterceptorTryCatchcheckbox.isEnabled() && IncludeInterceptorTryCatchcheckbox.isSelected())
 		{
 			this.isIncludeInterceptorTryCatchcheckboxchecked=true;
@@ -733,6 +767,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 			this.isGenerateBacktraceCheckboxchecked=true;
 		}
 			
+		if (AIChatFunctionRegexCheckBox.isEnabled() && AIChatFunctionRegexCheckBox.isSelected())
+		{
+			this.isAIChatFunctionRegexCheckBoxchecked=true;
+		}
 		
 		//Mutual exclusion:
 		if (this.isIncludeTIDAndIndentationcheckboxchecked && this.isCustomFunInterceptorHookOutputCheckboxchecked)
