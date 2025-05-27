@@ -325,7 +325,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		GenerateScriptCheckbox.setMnemonic('S');
 		GenerateScriptCheckbox.setToolTipText(
 				"Generate Hook Script and not Snippet, that means, add prologue and epilogue");
-		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method)"};
+		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method", "attachModuleObserver() method (frida >=16.7.0)"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");

@@ -91,7 +91,8 @@ public class X86ParserOfComputedCall implements ParserOfComputedCalls{
 		if (arg_is_a_number)
 		{
 			/*Simply number, maybe in a dereference. No complex parsing needed*/
-			retval+="Module.findBaseAddress("+this.incoming_module_name_sanitized+").add("+arg+")";
+			//OLD_API:retval+="Module.findBaseAddress("+this.incoming_module_name_sanitized+").add("+arg+")";
+			retval+="Process.getModuleByName("+this.incoming_module_name_sanitized+").base.add("+arg+")";
 		}
 		else
 		{

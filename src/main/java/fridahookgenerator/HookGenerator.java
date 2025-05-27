@@ -1318,7 +1318,8 @@ public class HookGenerator {
 
 			//String.concat() is the fastest, but "+" is also used for code clarity. 
 			hook_str=hook_str.concat("        var offset_of_"+function_name_with_current_addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
-							 .concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
+							 //OLD_API:.concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
+							 .concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base.add(offset_of_"+function_name_with_current_addr+");\n")
 							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("        ","dynamic_address_of_"+function_name_with_current_addr,current_function_name_sanitized,current_function));
 			
 			String errors_if_interceptor_replace_is_used=this.utils.identify_errors_if_interceptor_replace_is_used(current_function,parameter_count);
@@ -1346,7 +1347,8 @@ public class HookGenerator {
 					
 			//String.concat() is the fastest, but "+" is also used for code clarity.
 			hook_str=hook_str.concat("        var offset_of_"+addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
-							 .concat("        var dynamic_address_of_"+addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr+");\n")
+							 //OLD_API:.concat("        var dynamic_address_of_"+addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr+");\n")
+							 .concat("        var dynamic_address_of_"+addr+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base.add(offset_of_"+addr+");\n")
 							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("      ","dynamic_address_of_"+addr,str_in_place_of_current_function_name_sanitized,current_function))
 
 							 

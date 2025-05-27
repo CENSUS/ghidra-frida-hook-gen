@@ -80,7 +80,7 @@ import ghidra.program.util.ProgramLocation;
 @PluginInfo(
 	status = PluginStatus.STABLE,
 	packageName = "Frida Hook Generator",
-	category = PluginCategoryNames.MISC,
+	category = PluginCategoryNames.COMMON,
 	shortDescription = "This plugin provides right-click options for fast generation of Frida hooks",
 	description = "This plugin generates a right-click options for fast generation of Frida hook code, for specified addresses in the binary. That (Javascript) code can be run through Frida, and at the very least it will report when the code reaches the specified points. When the hooked address is the start of a function, the plugin generates a hook with Interceptor's onEnter()/onLeave() calls. When the code is not at the start of the function, the plugin generates hooks without these calls."
 	//servicesRequired = { ConsoleService.class}

@@ -76,9 +76,10 @@ public class HookGeneratorUtils {
 					+ "start_timer_for_intercept();\n";
 		}
 		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==1 ||
-				this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==2 )
+				this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==2 ||
+				this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==3 )
 		{
-			//dlopen() or LoadLibrary() method
+			//dlopen(), LoadLibrary() or attachModuleObserver() method
 			hook_str+="        \n"
 					+ "    Interceptor.flush();\n"
 					+ "    console.log(\"Registered interceptors.\");\n"
@@ -267,7 +268,37 @@ public class HookGeneratorUtils {
 					+ "    console.log(\"Registering interceptors...\");\n"
 					+ "    \n\n";
 		}
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isGenerateScriptCheckboxchecked && this.incoming_hook_generator.advancedhookoptionsdialog.TypeofScriptGenerationcomboBox.getSelectedIndex()==3)
+		{
+			//attachModuleObserver method
+			String varstr_for_observer=this.generate_random_string_from_pool(this.characters_allowed_in_variable_name,6);
+			hook_str+="var module_name_"+this.incoming_hook_generator.current_program_name_sanitized+"='"+this.incoming_hook_generator.current_program_name+"';\n";
+			hook_str+="\n";
+			hook_str+="var observer_"+varstr_for_observer+" = Process.attachModuleObserver({\n"
+					+ "    onAdded(module) {\n"
+					+ "        console.log('Module '+module.path+' was just loaded, with base address: '+module.base);\n"
+					+ "        if (module.name==module_name_"+this.incoming_hook_generator.current_program_name_sanitized+")\n"
+					+ "        {\n"
+					+ "            console.log('Found our module!');\n"
+					+ "            intercept_identified_module_"+this.incoming_hook_generator.current_program_name_sanitized+"();\n"
+					+ "        }\n"
+					+ "    },\n"
+					+ "    onRemoved(module) {\n"
+					+ "        console.log('Module '+module.path+' was  unloaded');\n"
+					+ "    }\n"
+					+ "});"
+					+ "\n"
+					+ "\n"
+					+ "function intercept_identified_module_"+this.incoming_hook_generator.current_program_name_sanitized+"()\n"
+					+ "{\n"
+					+ "    console.log(\"Registering interceptors...\");\n";
+			hook_str+="    \n";
+			hook_str+="    \n";
+		}
+		
 		return hook_str;
+		
+		
 		
 	}
 	
@@ -535,7 +566,8 @@ public class HookGeneratorUtils {
 			retval+=spaces+"dict_from_current_addresses_to_function_names["+current_addr_js_variable+"]=\""+current_function_name_sanitized+"\";\n";
 			if (!current_function_name_sanitized.equals("not in a function") && current_function!=null)
 			{
-				retval+=spaces+"current_function_start_address=Module.findBaseAddress(module_name_"+this.incoming_hook_generator.current_program_name_sanitized+").add(0x"+Long.toHexString(current_function.getEntryPoint().getOffset()-this.incoming_hook_generator.image_base.getOffset())+");\n";
+				//OLD_API:retval+=spaces+"current_function_start_address=Module.findBaseAddress(module_name_"+this.incoming_hook_generator.current_program_name_sanitized+").add(0x"+Long.toHexString(current_function.getEntryPoint().getOffset()-this.incoming_hook_generator.image_base.getOffset())+");\n";
+				retval+=spaces+"current_function_start_address=Process.getModuleByName(module_name_"+this.incoming_hook_generator.current_program_name_sanitized+").base.add(0x"+Long.toHexString(current_function.getEntryPoint().getOffset()-this.incoming_hook_generator.image_base.getOffset())+");\n";
 				retval+=spaces+"dict_from_function_names_to_function_start_addresses[\""+current_function_name_sanitized+"\"]=current_function_start_address;\n";
 				retval+=spaces+"dict_from_current_addresses_to_function_start_addresses["+current_addr_js_variable+"]=current_function_start_address;\n";
 				retval+=spaces+"dict_from_function_start_addresses_to_function_names[current_function_start_address]=\""+current_function_name_sanitized+"\";\n";

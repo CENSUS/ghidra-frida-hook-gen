@@ -87,7 +87,7 @@ public class SelectionBatchHookGenerationTask extends Task {
 		String hook_str="";
 		this.result_of_selectionbatch_hook_generation_task="";
 		
-		monitor.checkCanceled();
+		monitor.checkCancelled(); 
 		if (monitor.isCancelled())
 		{
 			this.is_cancelled=true;
