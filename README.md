@@ -14,7 +14,11 @@ It should be noted that the right-click should be done when hovering over the in
 
 #### Installation:
 
-- Take the latest ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside the folder dist/ .
+- Take the latest ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside the folder dist/ . Alternatively, grab the latest `gradle` version from [here](https://gradle.org/releases/), the latest `Ghidra` version from [here](https://github.com/NationalSecurityAgency/ghidra/releases), cd into the root directory of the project and run
+```
+/path/to/gradle -PGHIDRA_INSTALL_DIR=/path/to/ghidra
+```
+which will produce a .zip file to be installed inside the dist/ folder.
 - From Ghidra (before opening a tool) -> File -> Install Extensions -> + sign -> Select the zip -> Make sure the FridaHookGenerator is checked in the list of extensions
 - Restart Ghidra
 - Open CodeBrowser tool and analyze a binary. When asked if the new plugin should be configured, press "Yes" and make sure it is ticked. 
@@ -67,7 +71,7 @@ function start_timer_for_intercept() {
         
         
         var offset_of_FUN_00432450_00432450=0x32450;
-        var dynamic_address_of_FUN_00432450_00432450=Module.findBaseAddress(module_name_vlc_exe).add(offset_of_FUN_00432450_00432450);
+        var dynamic_address_of_FUN_00432450_00432450=Process.getModuleByName(module_name_vlc_exe).base.add(offset_of_FUN_00432450_00432450);
         Interceptor.attach(dynamic_address_of_FUN_00432450_00432450, {
                     onEnter: function(args) {
                         console.log("Entered FUN_00432450_00432450");
@@ -93,7 +97,7 @@ The code when hooking a random address that is not the first address in a functi
 
 ```
     var offset_of_0043246c=0x3246c;
-    var dynamic_address_of_0043246c=Module.findBaseAddress(module_name_vlc_exe).add(offset_of_0043246c);
+    var dynamic_address_of_0043246c=Process.getModuleByName(module_name_vlc_exe).base.add(offset_of_0043246c);
     function function_to_call_when_code_reaches_0043246c(){
         console.log('Reached address 0x0043246c, which is inside function FUN_00432450');
         //this.context.x0=0x1;
