@@ -81,7 +81,7 @@ public class StandardHookGenerationTask extends Task {
 		HookGenerator hook_generator=new HookGenerator(this.incoming_plugintool,this.incoming_program,this.incoming_address,this.isAdvanced,this.isSnippet,this.incoming_advancedhookoptionsdialog,
 				monitor,this.internal_structures_for_hook_generation,true,true,this.consoleService,this.print_debug);
 		
-		monitor.checkCancelled();
+		//monitor.checkCancelled();
 		if (monitor.isCancelled())
 		{
 			this.is_cancelled=true;

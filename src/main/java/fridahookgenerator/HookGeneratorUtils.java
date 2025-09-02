@@ -334,6 +334,11 @@ public class HookGeneratorUtils {
 					+ "        */\n\n";
 		}
 		
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isCreateDataStructureWithInterceptorAttachObjectscheckboxchecked)
+		{
+			retval += "        var dict_with_objects_returned_from_attach={}\n\n";
+		}
+		
 		
 		//handling the case where threadID and indentation are requested
 		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isIncludeTIDAndIndentationcheckboxchecked)
@@ -577,6 +582,16 @@ public class HookGeneratorUtils {
 	}
 	
 	
+	String populate_data_structure_that_holds_Interceptor_attach_objects(String current_addr_js_variable)
+	{
+		String retval="";
+		if (this.incoming_hook_generator.isAdvanced && this.incoming_hook_generator.advancedhookoptionsdialog.isCreateDataStructureWithInterceptorAttachObjectscheckboxchecked)
+		{
+			retval+="dict_with_objects_returned_from_attach["+current_addr_js_variable+"]=";
+		}
+		return retval;
+	}
+		
 	
 
 	

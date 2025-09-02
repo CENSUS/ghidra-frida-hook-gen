@@ -158,6 +158,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public Boolean isHookImportsCheckBoxchecked;
 	public JCheckBox CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox;
 	public Boolean isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked;
+	public JCheckBox CreateDataStructureWithInterceptorAttachObjectscheckbox;
+	public Boolean isCreateDataStructureWithInterceptorAttachObjectscheckboxchecked;
 	public JCheckBox IncludeCustomTextcheckbox;
 	public Boolean isIncludeCustomTextcheckboxchecked;
 	public JTextField IncludeCustomTextTextField;
@@ -220,6 +222,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isDoNotHookThunkFunctionscheckboxchecked=false;
 		this.isDoNotHookExternalFunctionscheckboxchecked=false;
 		this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=false;
+		this.isCreateDataStructureWithInterceptorAttachObjectscheckboxchecked=false;
 		this.isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked=false;
 		this.isAIChatFunctionRegexCheckBoxchecked=false;
 		
@@ -325,7 +328,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		GenerateScriptCheckbox.setMnemonic('S');
 		GenerateScriptCheckbox.setToolTipText(
 				"Generate Hook Script and not Snippet, that means, add prologue and epilogue");
-		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method", "attachModuleObserver() method (frida >=16.7.0)"};
+		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method", "attachModuleObserver() method"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");
@@ -354,6 +357,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox=new GCheckBox("Create and initialize data structures that associate the hooked addresses with function names, accessible from javascript");
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setToolTipText("Create and initialize the relevant data structures, as it may be useful to be able to fetch the current function name (as visible in Ghidra) from the current address in javascript (accessible through \"this.context.pc\")");
 		
+		CreateDataStructureWithInterceptorAttachObjectscheckbox=new GCheckBox("In case of Interceptor.attach(), create and initialize a data structure that saves the returned objects from .attach() calls, on which we can later call .detach()");
+		CreateDataStructureWithInterceptorAttachObjectscheckbox.setToolTipText("Create and initialize the relevant data structure, as it may be useful to be able to detach the created hook in javascript (using the \"this.context.pc\" as the key in the created dictionary)");
+
 		IncludeCustomTextcheckbox=new GCheckBox("Add the following javascript code at the start of every hook generated:");
 		IncludeCustomTextcheckbox.setToolTipText("Adds javascript code in every hook, at the start (not present in function hook if onEnter() is removed)");
 		IncludeCustomTextTextField=new JTextField(30);
@@ -516,6 +522,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 		
 		multihookPanel.add(CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox);
+		multihookPanel.add(CreateDataStructureWithInterceptorAttachObjectscheckbox);
 		multihookSubPanel4.add(IncludeCustomTextcheckbox);
 		multihookSubPanel4.add(IncludeCustomTextTextField);
 		multihookPanel.add(multihookSubPanel4);
@@ -600,6 +607,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		HookImportsCheckBox.setEnabled(true);
 		GenerateBacktraceCheckbox.setEnabled(true);
 		CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.setEnabled(true);
+		CreateDataStructureWithInterceptorAttachObjectscheckbox.setEnabled(true);
 		IncludeCustomTextcheckbox.setEnabled(true);
 		IncludeCustomTextAftercheckbox.setEnabled(true);
 		IncludeInterceptorTryCatchcheckbox.setEnabled(true);
@@ -739,6 +747,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		}	
 		if (CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.isEnabled() && CreateDataStructuresToLinkAddressesAndFunctionNamescheckbox.isSelected()) {
 			this.isCreateDataStructuresToLinkAddressesAndFunctionNamescheckboxchecked=true;
+		}
+		if (CreateDataStructureWithInterceptorAttachObjectscheckbox.isEnabled() && CreateDataStructureWithInterceptorAttachObjectscheckbox.isSelected()) {
+			this.isCreateDataStructureWithInterceptorAttachObjectscheckboxchecked=true;
 		}
 		if (IncludeCustomTextcheckbox.isEnabled() && IncludeCustomTextcheckbox.isSelected()) {
 			this.isIncludeCustomTextcheckboxchecked=true;

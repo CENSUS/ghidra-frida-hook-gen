@@ -52,11 +52,14 @@ import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.table.GhidraTable;
+import ghidra.util.task.TaskMonitor;
 
 public class SelectionHookGenerationAction extends DockingAction {
 	protected Plugin incoming_plugin;
@@ -138,6 +141,14 @@ public class SelectionHookGenerationAction extends DockingAction {
 			if (current_code_unit!=null)
 			{
 				code_units_to_try_to_hook_into.add(current_code_unit); //If yes, add it to the list
+				int length_of_codeunit=current_code_unit.getLength();
+				if (current_address.equals(current_code_unit.getMinAddress()))
+				{
+				    for (int i=0;i<length_of_codeunit-1;i++)
+				    {
+				        address_iterator.next(); //skip the rest of the addresses until the end of the codeunit
+				    }
+				}
 			}
 		}
 		
@@ -145,6 +156,4 @@ public class SelectionHookGenerationAction extends DockingAction {
 		this.selection_hook_generation_dispatcher.perform_selection_hook_action();
 	}
 	
-	
-
 }

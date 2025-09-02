@@ -984,7 +984,7 @@ public class HookGenerator {
 	{
 		String hook_str="";
 
-		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
+		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+this.utils.populate_data_structure_that_holds_Interceptor_attach_objects("dynamic_address_of_"+function_name_with_current_addr)+"Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
 		if (this.include_onEnter_in_function_hooks)
 		{
 			hook_str=hook_str.concat("                    onEnter: function(args) {\n")
@@ -1378,7 +1378,7 @@ public class HookGenerator {
 			hook_str=hook_str.concat("            //this.context.x0=0x1;\n")
 							 .concat("        }\n")
 
-							 .concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+							 .concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+this.utils.populate_data_structure_that_holds_Interceptor_attach_objects("dynamic_address_of_"+addr)+"Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 
 		}
 		
