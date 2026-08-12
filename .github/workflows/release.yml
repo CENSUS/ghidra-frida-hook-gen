@@ -1,0 +1,264 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ghidra_version:
+        description: "Ghidra version to build against (blank = latest release)"
+        required: false
+        default: ""
+      plugin_version:
+        description: "Override the date-derived version (e.g. 2026.08.13)"
+        required: false
+        default: ""
+  # A source change produces a new dated release
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "data/**"
+      - "lib/**"
+      - "ghidra_scripts/**"
+      - "build.gradle"
+      - "extension.properties"
+      - "Module.manifest"
+      - ".github/workflows/**"
+  # Weekly poll so a new Ghidra release automatically gets a build
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # "commit" = date of the commit being built (stable: rebuilding the same
+  #            source against a newer Ghidra keeps the same version)
+  # "build"  = date the workflow ran
+  VERSION_DATE_SOURCE: commit
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 1. Date-based version (CalVer)
+      # ------------------------------------------------------------------
+      - name: Derive version from date
+        id: version
+        env:
+          OVERRIDE: ${{ inputs.plugin_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OVERRIDE:-}" ]; then
+            V="$OVERRIDE"
+          elif [ "$VERSION_DATE_SOURCE" = "build" ]; then
+            V=$(date -u +%Y.%m.%d)
+          else
+            V=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y.%m.%d)
+          fi
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+          echo "Plugin version: $V (source: ${OVERRIDE:+override}${OVERRIDE:-$VERSION_DATE_SOURCE})" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------------
+      # 2. Find the Ghidra release to build against
+      # ------------------------------------------------------------------
+      - name: Resolve Ghidra release
+        id: ghidra
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.ghidra_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED:-}" ]; then
+            JSON=$(gh api "repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_${REQUESTED}_build")
+          else
+            JSON=$(gh api repos/NationalSecurityAgency/ghidra/releases/latest)
+          fi
+
+          URL=$(jq -r '.assets[]
+                       | select(.name | test("^ghidra_.*_PUBLIC_[0-9]{8}\\.zip$"))
+                       | .browser_download_url' <<<"$JSON" | head -n1)
+          [ -n "$URL" ] || { echo "::error::No ghidra_*_PUBLIC_*.zip asset found"; exit 1; }
+
+          ASSET=$(basename "$URL")
+          echo "url=$URL"     >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -E 's/^ghidra_([^_]+)_PUBLIC_.*/\1/' <<<"$ASSET")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Ghidra install
+        id: ghidra-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ghidra
+          key: ghidra-${{ steps.ghidra.outputs.asset }}
+
+      - name: Download & extract Ghidra
+        if: steps.ghidra-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/ghidra
+          curl -fL --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 20 \
+               -o /tmp/ghidra.zip "${{ steps.ghidra.outputs.url }}"
+          unzip -q /tmp/ghidra.zip -d ~/ghidra
+          rm -f /tmp/ghidra.zip
+
+      # ------------------------------------------------------------------
+      # 3. Read the toolchain THIS Ghidra demands
+      # ------------------------------------------------------------------
+      - name: Resolve required Gradle & JDK
+        id: toolchain
+        run: |
+          set -euo pipefail
+          INSTALL_DIR=$(echo "$HOME"/ghidra/ghidra_*_PUBLIC)
+          [ -d "$INSTALL_DIR" ] || { echo "::error::Ghidra install dir not found"; exit 1; }
+          echo "GHIDRA_INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
+
+          PROPS="$INSTALL_DIR/Ghidra/application.properties"
+          echo "--- $PROPS ---"; cat "$PROPS"
+
+          prop() { grep -E "^$1=" "$PROPS" | head -n1 | cut -d= -f2- | tr -d '\r' | xargs; }
+
+          JAVA_MIN=$(prop application.java.min)
+          GRADLE_MIN=$(prop application.gradle.min)
+          GRADLE_MAX=$(prop application.gradle.max)
+          # Pre-11.x releases used a single application.gradle.version key
+          if [ -z "$GRADLE_MIN" ]; then GRADLE_MIN=$(prop application.gradle.version); fi
+          [ -n "$JAVA_MIN" ]   || { echo "::error::application.java.min missing";   exit 1; }
+          [ -n "$GRADLE_MIN" ] || { echo "::error::application.gradle.min missing"; exit 1; }
+
+          # Ghidra states a minimum like "9.1" but the published distribution is
+          # "9.1.0", so reconcile against the real version list.
+          GRADLE=$(GRADLE_MIN="$GRADLE_MIN" GRADLE_MAX="$GRADLE_MAX" python3 - <<'PY'
+          import json, os, urllib.request
+
+          def key(v):
+              return tuple(int(p) for p in v.split("."))
+
+          lo = key(os.environ["GRADLE_MIN"])
+          hi = os.environ["GRADLE_MAX"].strip()
+          hi = key(hi) if hi else None
+
+          data = json.load(urllib.request.urlopen(
+              "https://services.gradle.org/versions/all", timeout=60))
+
+          ok = []
+          for r in data:
+              if r.get("snapshot") or r.get("nightly") or r.get("releaseNightly") \
+                 or r.get("broken") or r.get("rcFor"):
+                  continue
+              try:
+                  k = key(r["version"])
+              except ValueError:
+                  continue          # milestones, rc tags, etc.
+              if k >= lo and (hi is None or k < hi):
+                  ok.append((k, r["version"]))
+
+          print(min(ok)[1] if ok else os.environ["GRADLE_MIN"])
+          PY
+          )
+
+          echo "java=$JAVA_MIN" >> "$GITHUB_OUTPUT"
+          echo "gradle=$GRADLE" >> "$GITHUB_OUTPUT"
+          echo "Toolchain: JDK $JAVA_MIN, Gradle $GRADLE (min $GRADLE_MIN, max ${GRADLE_MAX:-none})" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.toolchain.outputs.java }}
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.toolchain.outputs.gradle }}
+
+      # ------------------------------------------------------------------
+      # 4. First-run initialization, headless
+      # ------------------------------------------------------------------
+      - name: Initialize Ghidra
+        run: |
+          set -euo pipefail
+          chmod -R +x "$GHIDRA_INSTALL_DIR/support" "$GHIDRA_INSTALL_DIR/os" 2>/dev/null || true
+          mkdir -p /tmp/ghidra-init
+          "$GHIDRA_INSTALL_DIR/support/analyzeHeadless" \
+            /tmp/ghidra-init InitProject \
+            -import /bin/true \
+            -noanalysis \
+            -deleteProject
+
+      # ------------------------------------------------------------------
+      # 5. Build
+      # ------------------------------------------------------------------
+      - name: Build extension
+        run: |
+          set -euo pipefail
+          rm -rf dist && mkdir -p dist      # drop the committed zips so the glob is unambiguous
+          gradle buildExtension -PGHIDRA_INSTALL_DIR="$GHIDRA_INSTALL_DIR" --no-daemon --stacktrace
+          ls -lh dist
+
+      - name: Name the artifact
+        id: artifact
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          BUILT=$(ls dist/*.zip | head -n1)
+          # Gradle names the zip from the checkout directory (ghidra-frida-hook-gen);
+          # restore the project's dist/ naming and append the dated version.
+          BASE=$(basename "${BUILT%.zip}")
+          BASE="${BASE%_ghidra-frida-hook-gen}"
+          FINAL="dist/${BASE}_frida_hook_generator_${PLUGIN_VERSION}.zip"
+          mv "$BUILT" "$FINAL"
+          echo "path=$FINAL" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$FINAL")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frida-hook-generator-${{ steps.version.outputs.value }}-ghidra-${{ steps.ghidra.outputs.version }}
+          path: ${{ steps.artifact.outputs.path }}
+
+      # ------------------------------------------------------------------
+      # 6. Publish to Releases, one release per dated version
+      # ------------------------------------------------------------------
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET: ${{ steps.artifact.outputs.path }}
+          PLUGIN_VERSION: ${{ steps.version.outputs.value }}
+          GHIDRA_VERSION: ${{ steps.ghidra.outputs.version }}
+          GRADLE_VERSION: ${{ steps.toolchain.outputs.gradle }}
+          JAVA_VERSION: ${{ steps.toolchain.outputs.java }}
+        run: |
+          set -euo pipefail
+          TAG="v$PLUGIN_VERSION"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Same source, newer Ghidra: add/replace that build inside the
+            # existing dated release rather than inventing a new version.
+            echo "Adding $(basename "$ASSET") to existing release $TAG"
+            gh release upload "$TAG" "$ASSET" --clobber
+            exit 0
+          fi
+
+          NOTES=$(cat <<EOF
+          Frida Hook generator for Ghidra, version \`$PLUGIN_VERSION\`.
+
+          Built against **Ghidra $GHIDRA_VERSION** (Gradle \`$GRADLE_VERSION\`, JDK \`$JAVA_VERSION\`, commit \`$GITHUB_SHA\`).
+
+          Assets are named \`ghidra_<ghidra-version>_PUBLIC_<ghidra-date>_frida_hook_generator_$PLUGIN_VERSION.zip\`.
+          Builds for other Ghidra versions are added to this release as they are produced.
+
+          Install: Ghidra -> File -> Install Extensions -> **+** -> select the zip -> restart Ghidra.
+          EOF
+          )
+
+          gh release create "$TAG" "$ASSET" \
+            --target "$GITHUB_SHA" \
+            --title "frida_hook_generator $PLUGIN_VERSION" \
+            --notes "$NOTES"
