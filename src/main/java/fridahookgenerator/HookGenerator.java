@@ -102,9 +102,12 @@ public class HookGenerator {
 	protected Language current_program_language;
 	protected Address image_base;
 	protected Processor current_program_processor;
-	protected String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+	/*Careful: read from HookGeneratorUtils and not written out again here, so that the two classes cannot come to disagree about it*/
+	protected String characters_allowed_in_variable_name=HookGeneratorUtils.characters_allowed_in_variable_name;
 	protected AdvancedHookOptionsDialog advancedhookoptionsdialog;
 	protected int maximum_number_of_reasons_to_show=0;
+	/*How many reasons of hooking are kept for a single address. Careful: this must never be smaller than the largest value that the user can pick for the reasons to be printed, otherwise reasons that would have been shown are thrown away while they are being gathered*/
+	protected int maximum_number_of_reasons_to_accumulate=100;
 	protected HookGeneratorUtils utils;
 	protected String generated_hook_for_imported_functions=""; //this variable is populated in case the relevant option for imported function hooking is enabled
 	protected Boolean problems_encountered_with_chatgpt=false;
@@ -329,18 +332,25 @@ public class HookGenerator {
 			 */
 			ArrayList<ArrayList<ContainerForFunctionReferences>> all_depths_arraylists_of_function_references=new ArrayList<ArrayList<ContainerForFunctionReferences>>();
 
+			/*
+			 * Careful: the copies below are made with the constructor that takes a collection, and not with clone(). The two do
+			 * exactly the same thing to an ArrayList, a copy of the list that keeps pointing at the same items, but clone() is
+			 * declared to return Object, so casting its result back to a list of Containers is a cast that the compiler cannot
+			 * check. Six of those casts were the whole of the "uses unchecked or unsafe operations" note of the compiler.
+			 */
+
 			//initially for level 0
 			ArrayList<ContainerForFunctionReferences> arraylist_for_level_i=new ArrayList<ContainerForFunctionReferences>();
 			arraylist_for_level_i.add(new ContainerForFunctionReferences(current_function,-1,-1,0));
-			all_depths_arraylists_of_function_references.add((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone());
+			all_depths_arraylists_of_function_references.add(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i));
 			
 
 			for (i=1;i<=depth;i++)
 			{
 				this.incoming_monitor.setMessage("Incoming references, level "+i);
 				
-				arraylist_for_level_i=this.utils.handle_incoming_references_for_one_depth_level((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone(),i);
-				all_depths_arraylists_of_function_references.add((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone());
+				arraylist_for_level_i=this.utils.handle_incoming_references_for_one_depth_level(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i),i);
+				all_depths_arraylists_of_function_references.add(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i));
 				for (j=0;j<arraylist_for_level_i.size();j++)
 				{
 					Function newfun=arraylist_for_level_i.get(j).fun;
@@ -370,13 +380,13 @@ public class HookGenerator {
 			//initially for level 0
 			ArrayList<ContainerForFunctionReferences> arraylist_for_level_i=new ArrayList<ContainerForFunctionReferences>();
 			arraylist_for_level_i.add(new ContainerForFunctionReferences(current_function,-1,-1,0));
-			all_depths_arraylists_of_function_references.add((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone());
+			all_depths_arraylists_of_function_references.add(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i));
 							
 			for (i=1;i<=depth;i++)
 			{
 				this.incoming_monitor.setMessage("Outgoing calls, level "+i);
-				arraylist_for_level_i=this.utils.handle_outgoing_references_for_one_depth_level((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone(),i);
-				all_depths_arraylists_of_function_references.add((ArrayList<ContainerForFunctionReferences>) arraylist_for_level_i.clone());
+				arraylist_for_level_i=this.utils.handle_outgoing_references_for_one_depth_level(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i),i);
+				all_depths_arraylists_of_function_references.add(new ArrayList<ContainerForFunctionReferences>(arraylist_for_level_i));
 				for (j=0;j<arraylist_for_level_i.size();j++)
 				{
 					Function newfun=arraylist_for_level_i.get(j).fun;
@@ -422,9 +432,9 @@ public class HookGenerator {
 				Address newaddr=all_addresses_in_this_function.next();
 				Instruction newinstr=this.current_program_listing.getInstructionAt(newaddr);
 				String reason_for_hook="Address "+newaddr+" containing a dynamic (computed) call/jump";
-				if (newinstr!=null && this.utils.does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later(newinstr,reason_for_hook))
-				{	
-					generate_snippet_hook_for_address(newaddr,true,reason_for_hook);		//Careful: This particular reason is used to check if internal data structures should be updated. If changed, update the  update_internal_data_structures()/does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later() function		
+				if (newinstr!=null && this.utils.does_the_current_instruction_definitely_need_hook_code_to_also_be_added_later(newinstr))
+				{
+					generate_snippet_hook_for_address(newaddr,true,reason_for_hook);
 				}
 				
 				if (addresses_processed%200==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
@@ -657,7 +667,8 @@ public class HookGenerator {
 		
 
 		/* Function name regex hooking */
-		if (this.advancedhookoptionsdialog.isFunctionRegexCheckBoxchecked)
+		/*Careful: this walks over every function of the program, so it must only run once for the whole batch. This function is called once per address of a selection, and the addresses that it hooks are deduplicated anyway, so running it again for every address only repeats the same work*/
+		if (this.advancedhookoptionsdialog.isFunctionRegexCheckBoxchecked && this.we_are_in_the_first_hook_of_the_batch)
 		{
 			String regex_for_fun_name=this.advancedhookoptionsdialog.FunctionRegexTextField.getText();
 			Pattern pattern= Pattern.compile(regex_for_fun_name,Pattern.CASE_INSENSITIVE);
@@ -687,7 +698,13 @@ public class HookGenerator {
 		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 		
 		/* Hooking by regular expression provided by ChatGPT */
-		if (this.advancedhookoptionsdialog.isAIChatFunctionRegexCheckBoxchecked)
+		/*
+		 * Careful: this must only run once for the whole batch. It sends every function name of the program to the API, and
+		 * this function is called once for every address of a selection, so without this check a selection of N addresses
+		 * would send the entire list N times, with N times the waiting and N times the cost. The result is the same, as the
+		 * addresses that are hooked more than once are deduplicated anyway.
+		 */
+		if (this.advancedhookoptionsdialog.isAIChatFunctionRegexCheckBoxchecked && this.we_are_in_the_first_hook_of_the_batch)
 		{
 			String category_to_be_provided_to_chatgpt=this.advancedhookoptionsdialog.AIChatFunctionRegexTextField.getText();
 			int num_of_functions_processed=0;
@@ -697,16 +714,20 @@ public class HookGenerator {
 			
 			//First, gather all the function names
 			ArrayList<String> arraylist_with_fun_names=new ArrayList<String>();
+			ArrayList<String> arraylist_with_raw_fun_names=new ArrayList<String>();
 			ArrayList<Function> arraylist_with_functions=new ArrayList<Function>();
 			FunctionIterator fun_iter=this.current_program_listing.getFunctions(true);
-			
+
 			while(fun_iter!=null && fun_iter.hasNext())
 			{
 				Function newfun=fun_iter.next();
 				num_of_functions_processed++;
-				//the name will be altered, ChatGPT may have problems with colons, dollar signs etc
+				//the sanitized name is the one that ends up inside the reason of the hook
 				String name_of_newfun=newfun.getName(true).replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
 				arraylist_with_fun_names.add(name_of_newfun);
+				/*The name that is sent to ChatGPT keeps the characters of the original symbol, as namespaces and C++ mangling carry information that helps the categorization.
+				 *Only the newlines are removed, because the names are sent one per line. Everything else is escaped by the ChatGPTAPICaller when it builds the request*/
+				arraylist_with_raw_fun_names.add(newfun.getName(true).replace("\r"," ").replace("\n"," "));
 				arraylist_with_functions.add(newfun);
 				if (num_of_functions_processed%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 			}
@@ -725,45 +746,33 @@ public class HookGenerator {
 			}
 			else
 			{
-				String final_reply=gpt.askchatGPT_multiplemessages(category_to_be_provided_to_chatgpt,arraylist_with_fun_names);
-				System.out.println(final_reply);
-				if (final_reply=="CANCELLED")
+				/*The positions are returned already parsed and already checked to be valid positions inside the incoming list, which is parallel to arraylist_with_functions and arraylist_with_fun_names*/
+				ArrayList<Integer> positions_of_functions_to_hook=gpt.ask_which_function_names_are_related_to_category(category_to_be_provided_to_chatgpt,arraylist_with_raw_fun_names);
+
+				if (gpt.last_error==ChatGPTAPICaller.Errortype.CANCELLED)
 				{
 					//task monitor was cancelled
 					return;
 				}
-				
-				Boolean received_valid_reply=false;
-				String final_list_of_nums_str="";
-				if (final_reply.indexOf("\\n")<0)
+				if (positions_of_functions_to_hook==null)
 				{
-					final_list_of_nums_str=final_reply;
-					received_valid_reply=true;
+					//No usable reply was received. The reason has been printed by the ChatGPTAPICaller
+					System.out.println("No usable reply was received from ChatGPT, error type:"+gpt.last_error);
+					this.problems_encountered_with_chatgpt=true;
 				}
-				if (final_reply.split("\\\\n").length>=2)
+				else
 				{
-					final_list_of_nums_str=final_reply.split("\\\\n")[1];
-					received_valid_reply=true;
-				}
-				
-				if (received_valid_reply)
-				{
-					
-					String[] arr_of_numbers=final_list_of_nums_str.split(",");
-					System.out.println(final_list_of_nums_str);
-					
-					for (int i=0;i<arr_of_numbers.length;i++)
+					System.out.println("ChatGPT reported "+positions_of_functions_to_hook.size()+" function names related to the category "+category_to_be_provided_to_chatgpt);
+
+					for (int i=0;i<positions_of_functions_to_hook.size();i++)
 					{
-						Function fun_to_include=arraylist_with_functions.get(Integer.parseInt(arr_of_numbers[i].trim()));
-						String fun_name_to_include=arraylist_with_fun_names.get(Integer.parseInt(arr_of_numbers[i].trim()));
+						int position_of_function=positions_of_functions_to_hook.get(i).intValue();
+						Function fun_to_include=arraylist_with_functions.get(position_of_function);
+						String fun_name_to_include=arraylist_with_fun_names.get(position_of_function);
 						generate_snippet_hook_for_address(fun_to_include.getEntryPoint(),false,"Function hook to function "+fun_name_to_include+" due to being related to category "+category_to_be_provided_to_chatgpt.replace("\"", "")+" according to ChatGPT");
 
+						if (i%100==0 && this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 					}
-				}
-				else {
-					//The returned reply was not in the expected format
-					System.out.println("The returned ChatGPT reply was not in the expected format.");
-					this.problems_encountered_with_chatgpt=true;
 				}
 			}
 		}
@@ -774,7 +783,8 @@ public class HookGenerator {
 		
 
 		/* Function (mangled) name regex hooking */
-		if (this.advancedhookoptionsdialog.isFunctionMangledNameRegexCheckBoxchecked)
+		/*Careful: this walks over every function of the program, so it must only run once for the whole batch, for the same reason as the regex on the plain names above*/
+		if (this.advancedhookoptionsdialog.isFunctionMangledNameRegexCheckBoxchecked && this.we_are_in_the_first_hook_of_the_batch)
 		{
 			String regex_for_fun_mangled_name=this.advancedhookoptionsdialog.FunctionMangledNameRegexTextField.getText();
 			Pattern pattern= Pattern.compile(regex_for_fun_mangled_name,Pattern.CASE_INSENSITIVE);
@@ -804,7 +814,14 @@ public class HookGenerator {
 		if (this.incoming_monitor.isCancelled()) {return;} //check for cancellation by the user
 
 		/*Hook all imported symbols*/
-		if (this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked)
+		/*
+		 * Careful: this walks over every external symbol of the program, so it must only run once for the whole batch.
+		 * Unlike the sweeps above it is bound to the LAST hook of the batch and not to the first one, because it does not
+		 * put its result into the shared data structures: it stores it in a field of this object, and this object is a new
+		 * one for every address of a selection. It is the generator of the last address that appends that field to the
+		 * output, so it has to be the one that fills it in as well.
+		 */
+		if (this.advancedhookoptionsdialog.isHookImportsCheckBoxchecked && this.we_are_in_the_final_hook_of_the_batch)
 		{
 			SymbolTable symboltable=this.current_program.getSymbolTable();
 
@@ -831,7 +848,14 @@ public class HookGenerator {
 					found_in_hashmap_of_functions=true;
 					Address addr_of_symbol=next_symbol.getProgramLocation().getAddress();
 					Function identified_function=this.current_program.getFunctionManager().getFunctionAt(addr_of_symbol);
-					
+
+					/*Careful: there is not always a function at the address of an external symbol, and the code below dereferences it*/
+					if (identified_function==null)
+					{
+						imports_hook_str+=spaces+"//Not creating import hook for the symbol "+next_symbol.getName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_")+" , there is no function at its address\n";
+						continue;
+					}
+
 															
 					//If the function has been processed, and we don't have a mangled symbol or the stored symbol is mangled, continue
 					//This is done to put preference in mangled symbols
@@ -865,13 +889,20 @@ public class HookGenerator {
 						continue;
 					}
 					int parameter_count=identified_function.getParameterCount();
-					String raw_function_name=sanitized_symbol_name_with_at_colon_tilde_qmark_dollar; //we have passed a sanitization process
+					/*
+					 * Careful: this is the name as the database has it, and it is used as it is, both to look the export up at run time
+					 * and inside a string literal of the generated script. Both of those are only safe because of the check just above:
+					 * a name with anything outside 0-9 a-z A-Z _ : @ ~ ? $ in it is not repaired, the whole import is skipped. Turning
+					 * that skip into a repair would mean looking up a name that the process does not have, and turning it into no check
+					 * at all would mean a quote in a name ending the literal that this goes into.
+					 */
+					String raw_function_name=sanitized_symbol_name_with_at_colon_tilde_qmark_dollar;
 					String properly_sanitized_function_name=identified_function.getName(true).replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_"); //this time, sanitize it properly so that it can get into a variable
 					String sanitized_export_module_name_regex="*"; //can be anywhere
 					
 					if (next_symbol.getName(true).toLowerCase().contains(".dll::")) // in Windows, we may have the module name
 					{
-						sanitized_export_module_name_regex="*"+this.utils.return_sanitized_module_name_regex_for_dll_external_function_import(next_symbol.getName(true).toLowerCase());
+						sanitized_export_module_name_regex="*"+HookGeneratorUtils.return_sanitized_module_name_regex_for_dll_external_function_import(next_symbol.getName(true).toLowerCase());
 					}
 						
 					//TODO: This should not call its own code, it should be integrated with the standard Interceptor.attach() hook code generator.
@@ -887,7 +918,8 @@ public class HookGenerator {
 		
 		
 		/*Hook all exported symbols*/
-		if (this.advancedhookoptionsdialog.isHookExportsCheckBoxchecked)
+		/*Careful: this walks over every entry point of the program, so it must only run once for the whole batch*/
+		if (this.advancedhookoptionsdialog.isHookExportsCheckBoxchecked && this.we_are_in_the_first_hook_of_the_batch)
 		{
 			SymbolTable symboltable=this.current_program.getSymbolTable();
 			AddressIterator addr_iter=symboltable.getExternalEntryPointIterator();
@@ -914,7 +946,7 @@ public class HookGenerator {
 	protected String gather_all_generated_hooks()
 	{
 		String hook_str="";
-		StringBuffer sb=new StringBuffer(10000000); //Much faster than simple string concatenation when doing it for many strings
+		StringBuffer sb=new StringBuffer(5000000); //Much faster than simple string concatenation when doing it for many strings. This is only the initial capacity, the buffer expands on its own when it is exceeded, so a smaller one only costs a few reallocations for the very large batches
 		
 		if (this.incoming_monitor.isCancelled()) {return "";} //check for cancellation by the user)
 		this.incoming_monitor.setMessage("Gathering all generated hooks in one...");
@@ -1037,7 +1069,7 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
-				hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(true));
+				hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(true,"                        "));
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 			{
@@ -1045,11 +1077,24 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 			{
-				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+				hook_str=hook_str.concat(HookGeneratorUtils.prefix_of_placeholder_for_hook_code_to_be_added_later+addr);
 			}
-			hook_str=hook_str.concat("                        // this.context.x0=0x1;\n")
+			hook_str=hook_str.concat(this.utils.return_the_hint_that_shows_how_a_register_is_changed("                        "))
 							 .concat(this.utils.increase_console_indent_if_chosen())
 							 .concat("                    }");
+		}
+		else if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
+		{
+			/*
+			 * The user asked for the destination of the computed call at this address, and for a hook without an onEnter, and the
+			 * two cannot both be had: the code that calculates the destination reads the registers at the entry of the function, so
+			 * the onEnter is the only place it could be written into. Saying so is better than writing nothing, because otherwise
+			 * an option that was switched on looks as if it had simply been ignored.
+			 *
+			 * Careful: no placeholder is emitted here on purpose. The pass that replaces the placeholders is only told about an
+			 * address when a placeholder really ended up in its hook, so a comment costs nothing and leaves nothing behind.
+			 */
+			hook_str=hook_str.concat("                    //The destination of the computed call at "+addr+" is not reported here, because this hook was asked to be generated without an onEnter(), which is where the code that calculates it would go\n");
 		}
 		if (this.include_onEnter_in_function_hooks && this.include_onLeave_in_function_hooks) 
 		{
@@ -1105,7 +1150,7 @@ public class HookGenerator {
 		String str_for_return_type="";
 		
 		/*Generate string for return type*/
-		if (current_function.getReturnType().toString()=="void")
+		if (current_function.getReturnType().toString().equals("void"))
 		{
 			str_for_return_type+="'void'";
 		}
@@ -1117,8 +1162,16 @@ public class HookGenerator {
 		
 		hook_str=hook_str.concat("        var NativeFunction_of_"+function_name_with_current_addr+"= new NativeFunction("+nativefunction_str+");\n");
 		
-		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.replace(dynamic_address_of_"+function_name_with_current_addr+",new NativeCallback(("+str_for_params_in_nativecallback+") => {\n");
-		
+		/*
+		 * Careful: the callback has to be emitted as a normal function and not as an arrow function. Frida binds the "this"
+		 * of a NativeCallback to the invocation context, and an arrow function has no "this" of its own, so it would keep
+		 * the one of the enclosing scope. That is what used to make this.context, this.returnAddress and this.depth
+		 * unavailable inside an Interceptor.replace() hook.
+		 */
+		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+"Interceptor.replace(dynamic_address_of_"+function_name_with_current_addr+",new NativeCallback(function("+str_for_params_in_nativecallback+"){\n");
+		hook_str=hook_str.concat("                        //Careful: this has to stay a normal function. Frida binds the \"this\" of a NativeCallback to the invocation context, so this.context (the registers at the entry of the function), this.returnAddress (the caller) and this.depth are available here. An arrow function would keep the \"this\" of the enclosing scope and all of them would be undefined.\n");
+		hook_str=hook_str.concat("                        //Note that the registers are a snapshot taken at the entry of the function, so they are stale after the original function is called below, and that writing to them has no effect, because this callback replaces the function instead of running before it.\n");
+
 		hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Entered "+function_name_with_current_addr+"\");\n");
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 		{
@@ -1140,9 +1193,10 @@ public class HookGenerator {
 				{
 					include_names_of_arguments=true;
 					//In this case, the names of the arguments must be put inside the function and variables should be declared
+					//Careful: a NativeCallback has no args[] array, its parameters are the arg_0,arg_1,... that were declared in its signature above
 					for (int i=0;i<parameter_count;i++)
 					{
-						hook_str+="                        var arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"=args["+i+"];\n";
+						hook_str+="                        var arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"=arg_"+i+";\n";
 					}
 				}
 			}
@@ -1155,7 +1209,8 @@ public class HookGenerator {
 						   {
 							   if (include_names_of_arguments)
 							   {
-								   hook_str+="args["+i+"](arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+")='+args["+i+"]";
+								   //Careful: the value has to be read from the arg_<i> parameter of the NativeCallback, there is no args[] array in it
+								   hook_str+="args["+i+"](arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+")='+arg_"+i+"";
 							   }
 							   else
 							   {
@@ -1167,7 +1222,8 @@ public class HookGenerator {
 			}
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 		{
-			hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(false));
+			/*A replacement is entered at the beginning of the function it replaces, so it counts as a function beginning*/
+			hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(true,"                        "));
 		}
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 		{
@@ -1175,9 +1231,10 @@ public class HookGenerator {
 		}
 		if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 		{
-			hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+			hook_str=hook_str.concat(HookGeneratorUtils.prefix_of_placeholder_for_hook_code_to_be_added_later+addr);
 		}
 		
+		hook_str=hook_str.concat(this.utils.return_the_hint_that_says_that_writing_a_register_does_nothing("                        "));
 		hook_str=hook_str.concat(this.utils.increase_console_indent_if_chosen());
 		//call the original function
 		hook_str=hook_str.concat("                        var retval=NativeFunction_of_"+function_name_with_current_addr+"("+str_for_params_in_nativecallback+");\n");
@@ -1189,7 +1246,7 @@ public class HookGenerator {
 			hook_str=hook_str.concat("                        "+this.advancedhookoptionsdialog.IncludeCustomTextAfterTextField.getText()+"\n");
 		}
 		
-		if (current_function.getReturnType().toString()!="void")
+		if (!current_function.getReturnType().toString().equals("void"))
 		{
 			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+", retval:\"+retval);\n");
 			hook_str=hook_str.concat("                        return retval;\n");
@@ -1211,10 +1268,25 @@ public class HookGenerator {
 		
 		if (this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.containsKey(addr.toString()))
 		{
-			//Update the hashmap to reflect that another reason was added for the address to be hooked
-			String tmpstr=this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.get(addr.toString());
-			this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(addr.toString(),tmpstr.concat("|").concat(reason_for_hook_generation));
-			
+			/*
+			 * Update the hashmap to reflect that another reason was added for the address to be hooked.
+			 * Careful: the reasons of an address are all kept inside one string, so an address that keeps being hooked keeps
+			 * making that string longer, which costs both time and memory for no gain, as only the first
+			 * maximum_number_of_reasons_to_accumulate of them can ever be printed.
+			 */
+			String key_of_address=addr.toString();
+			int how_many_reasons_so_far=1; //the address is already in the structures, so it has at least the reason it was first hooked for
+			if (this.internal_structures_for_hook_generation.how_many_reasons_have_been_accumulated_per_address.containsKey(key_of_address))
+			{
+				how_many_reasons_so_far=this.internal_structures_for_hook_generation.how_many_reasons_have_been_accumulated_per_address.get(key_of_address).intValue();
+			}
+			if (how_many_reasons_so_far<this.maximum_number_of_reasons_to_accumulate)
+			{
+				String tmpstr=this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.get(key_of_address);
+				this.internal_structures_for_hook_generation.Addresses_for_current_hook_str.put(key_of_address,tmpstr.concat("|").concat(reason_for_hook_generation));
+				this.internal_structures_for_hook_generation.how_many_reasons_have_been_accumulated_per_address.put(key_of_address,Integer.valueOf(how_many_reasons_so_far+1));
+			}
+
 			//Set the intermediate message for this index
 			if(this.internal_structures_for_hook_generation.Messages_to_be_included_between_hooks.containsKey(this.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch))
 			{
@@ -1264,8 +1336,10 @@ public class HookGenerator {
 		Address current_function_entry_point;
 		Boolean we_are_at_start_of_function;
 		String current_function_name_sanitized="";
-		
-		
+		/*Careful: the address cannot be placed inside a javascript identifier as it is. Address.toString() prefixes the name of the address space, followed by a colon, for every address space other than the default one*/
+		String addr_str_sanitized=this.utils.return_sanitized_address_str_for_variable_name(addr);
+
+
 		if (current_function!=null)
 		{
 			current_function_entry_point=current_function.getEntryPoint();
@@ -1302,7 +1376,7 @@ public class HookGenerator {
 		if (we_are_at_start_of_function && !(this.isAdvanced && this.advancedhookoptionsdialog.isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked))
 		{
 			//If we are at the start of a function and we are not forced to treat the address as a normal, non function-beginning one
-			function_name_with_current_addr=current_function_name_sanitized+"_"+addr;
+			function_name_with_current_addr=current_function_name_sanitized+"_"+addr_str_sanitized;
 			int parameter_count=current_function.getParameterCount(); //May not always work, decompiler must commit the params first
 			DataType current_function_returntype=current_function.getReturnType();
 			String current_function_callingconventionname=current_function.getCallingConventionName();
@@ -1316,15 +1390,18 @@ public class HookGenerator {
 				System.out.println("Current function calling convention name:"+current_function_callingconventionname);
 			}
 
-			//String.concat() is the fastest, but "+" is also used for code clarity. 
-			hook_str=hook_str.concat("        var offset_of_"+function_name_with_current_addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
+			/*Careful: the offset is signed, so the hexadecimal that is emitted is its absolute value and the sign is expressed by the add()/sub() that is applied on the base of the module*/
+			long offset_of_current_function_from_the_image_base=addr.getOffset()-this.image_base.getOffset();
+
+			//String.concat() is the fastest, but "+" is also used for code clarity.
+			hook_str=hook_str.concat("        var offset_of_"+function_name_with_current_addr+"="+HookGeneratorUtils.return_hex_str_for_absolute_value_of_offset(offset_of_current_function_from_the_image_base)+";\n")
 							 //OLD_API:.concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+function_name_with_current_addr+");\n")
-							 .concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base.add(offset_of_"+function_name_with_current_addr+");\n")
+							 .concat("        var dynamic_address_of_"+function_name_with_current_addr+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base."+HookGeneratorUtils.return_frida_operation_for_offset(offset_of_current_function_from_the_image_base)+"(offset_of_"+function_name_with_current_addr+");\n")
 							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("        ","dynamic_address_of_"+function_name_with_current_addr,current_function_name_sanitized,current_function));
 			
 			String errors_if_interceptor_replace_is_used=this.utils.identify_errors_if_interceptor_replace_is_used(current_function,parameter_count);
 			//empty string means that no problems are identified
-			if (errors_if_interceptor_replace_is_used=="" && !this.use_interceptor_attach_instead_of_replace_in_function_hooks)
+			if (errors_if_interceptor_replace_is_used.equals("") && !this.use_interceptor_attach_instead_of_replace_in_function_hooks)
 			{
 				hook_str=hook_str.concat(generate_interceptor_replace_hook(addr,current_function,function_name_with_current_addr,parameter_count));
 			}
@@ -1345,14 +1422,17 @@ public class HookGenerator {
 				str_in_place_of_current_function_name_sanitized=current_function_name_sanitized;
 			}
 					
-			//String.concat() is the fastest, but "+" is also used for code clarity.
-			hook_str=hook_str.concat("        var offset_of_"+addr+"=0x"+Long.toHexString(addr.getOffset()-this.image_base.getOffset())+";\n")
-							 //OLD_API:.concat("        var dynamic_address_of_"+addr+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr+");\n")
-							 .concat("        var dynamic_address_of_"+addr+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base.add(offset_of_"+addr+");\n")
-							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("      ","dynamic_address_of_"+addr,str_in_place_of_current_function_name_sanitized,current_function))
+			/*Careful: the offset is signed, so the hexadecimal that is emitted is its absolute value and the sign is expressed by the add()/sub() that is applied on the base of the module*/
+			long offset_of_current_address_from_the_image_base=addr.getOffset()-this.image_base.getOffset();
 
-							 
-							 .concat("        function function_to_call_when_code_reaches_"+addr+"(){\n")
+			//String.concat() is the fastest, but "+" is also used for code clarity.
+			hook_str=hook_str.concat("        var offset_of_"+addr_str_sanitized+"="+HookGeneratorUtils.return_hex_str_for_absolute_value_of_offset(offset_of_current_address_from_the_image_base)+";\n")
+							 //OLD_API:.concat("        var dynamic_address_of_"+addr_str_sanitized+"=Module.findBaseAddress(module_name_"+this.current_program_name_sanitized+").add(offset_of_"+addr_str_sanitized+");\n")
+							 .concat("        var dynamic_address_of_"+addr_str_sanitized+"=Process.getModuleByName(module_name_"+this.current_program_name_sanitized+").base."+HookGeneratorUtils.return_frida_operation_for_offset(offset_of_current_address_from_the_image_base)+"(offset_of_"+addr_str_sanitized+");\n")
+							 .concat(this.utils.populate_data_structures_that_link_addresses_and_function_names("        ","dynamic_address_of_"+addr_str_sanitized,str_in_place_of_current_function_name_sanitized,current_function))
+
+
+							 .concat("        function function_to_call_when_code_reaches_"+addr_str_sanitized+"(){\n")
 							 .concat("            console.log("+this.utils.tid_and_indent_code()+"'Reached address 0x"+addr+str_for_current_function_if_any+"');\n");
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
@@ -1361,7 +1441,7 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
-				hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(false));
+				hook_str=hook_str.concat(this.utils.generate_backtrace_for_hook(false,"            "));
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextcheckboxchecked)
 			{
@@ -1369,16 +1449,16 @@ public class HookGenerator {
 			}
 			if (this.isAdvanced && this.utils.can_there_be_any_reason_why_this_address_may_need_code_that_is_later_added_in_the_hook(addr))
 			{
-				hook_str=hook_str.concat("PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+addr);
+				hook_str=hook_str.concat(HookGeneratorUtils.prefix_of_placeholder_for_hook_code_to_be_added_later+addr);
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeCustomTextAftercheckboxchecked)
 			{
 				hook_str=hook_str.concat("            "+this.advancedhookoptionsdialog.IncludeCustomTextAfterTextField.getText()+"\n");
 			}
-			hook_str=hook_str.concat("            //this.context.x0=0x1;\n")
+			hook_str=hook_str.concat(this.utils.return_the_hint_that_shows_how_a_register_is_changed("            "))
 							 .concat("        }\n")
 
-							 .concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+this.utils.populate_data_structure_that_holds_Interceptor_attach_objects("dynamic_address_of_"+addr)+"Interceptor.attach(dynamic_address_of_"+addr+", function_to_call_when_code_reaches_"+addr+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+							 .concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+this.utils.populate_data_structure_that_holds_Interceptor_attach_objects("dynamic_address_of_"+addr_str_sanitized)+"Interceptor.attach(dynamic_address_of_"+addr_str_sanitized+", function_to_call_when_code_reaches_"+addr_str_sanitized+"); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 
 		}
 		

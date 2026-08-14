@@ -46,7 +46,9 @@ public class InternalStructuresForHookGeneration {
 	protected HashMap<Address,HashMap<String,String>> Addresses_that_need_hook_code_to_be_added_at_a_later_stage;
 	//This HashMap keeps some messages that are to be output between the hooks, in the form <index,message>
 	protected HashMap<Integer,String> Messages_to_be_included_between_hooks;
-	
+	//This HashMap keeps how many reasons of hooking have been accumulated for every address, so that the accumulation can be stopped when there are already more than the ones that will ever be printed. Without it, an address that is hooked many times in the same batch keeps growing its (single) string of reasons, which costs both time and memory
+	protected HashMap<String,Integer> how_many_reasons_have_been_accumulated_per_address;
+
 	public InternalStructuresForHookGeneration() {
 		this.Addresses_for_current_hook_str= new HashMap<String, String>();
 		this.how_many_addresses_have_been_hooked_so_far_in_this_batch=0;
@@ -54,5 +56,6 @@ public class InternalStructuresForHookGeneration {
 		this.hooks_generated_per_address_in_order_of_appearance=new ArrayList<String>();
 		this.Addresses_that_need_hook_code_to_be_added_at_a_later_stage=new HashMap<Address,HashMap<String,String>>(); 
 		this.Messages_to_be_included_between_hooks=new HashMap<Integer,String>();
+		this.how_many_reasons_have_been_accumulated_per_address=new HashMap<String,Integer>();
 	}
 }

@@ -84,6 +84,28 @@ public class StructAccessCodeGenerator {
 		}
 		return false;
 	}
+
+
+	/*
+	 * Careful: the excluded paths are also placed inside the included_structures, so that no class is generated for them.
+	 * That is why the exclusion has to be checked against the list itself and not against the included_structures, whose
+	 * other entries are structures for which a class *has* been generated.
+	 */
+	protected Boolean is_structure_path_excluded(String path_of_structure)
+	{
+		if (path_of_structure==null)
+		{
+			return false;
+		}
+		for (int i=0;i<this.list_of_paths_to_be_excluded.length;i++)
+		{
+			if (path_of_structure.equals(this.list_of_paths_to_be_excluded[i]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 	
 	
 	protected String generate_recursive_hook_str(Structure in_struct)
@@ -162,6 +184,7 @@ public class StructAccessCodeGenerator {
 		int[] list_of_lengths_in_bytes=new int[num_of_components];
 		boolean[] is_bitfied= new boolean[num_of_components];
 		boolean[] component_returns_valid_hook= new boolean[num_of_components];
+		boolean[] component_is_a_structure_that_was_excluded= new boolean[num_of_components];
 		int last_position_of_component_which_returns_valid_hook=-1;
 		
 		/*Iterate over all components and store them into the arrays*/
@@ -182,10 +205,20 @@ public class StructAccessCodeGenerator {
 			list_of_offsets_in_bytes[i]=dataTypeComponent.getOffset();
 			list_of_lengths_in_bytes[i]=dataTypeComponent.getLength();
 			is_bitfied[i]=dataTypeComponent.isBitFieldComponent();
+			component_is_a_structure_that_was_excluded[i]=false;
 			if (dataTypeComponent.getDataType() instanceof Structure && !is_structure_empty((Structure) dataTypeComponent.getDataType()))
 			{
-				component_returns_valid_hook[i]=true;
-				last_position_of_component_which_returns_valid_hook=i;
+				/*Careful: no member can be created for an excluded structure. Its class is never generated, so referring to it would only produce a javascript error when the hook runs*/
+				if (is_structure_path_excluded(dataTypeComponent.getDataType().getPathName()))
+				{
+					component_returns_valid_hook[i]=false;
+					component_is_a_structure_that_was_excluded[i]=true;
+				}
+				else
+				{
+					component_returns_valid_hook[i]=true;
+					last_position_of_component_which_returns_valid_hook=i;
+				}
 			}
 			else
 			{
@@ -240,6 +273,10 @@ public class StructAccessCodeGenerator {
 			for (int i=0;i<num_of_components;i++)
 			{
 				String addcomma=",";
+				if (component_is_a_structure_that_was_excluded[i])
+				{
+					hook_str+="            //no member is created for field '"+fieldnames[i]+"', its structure type was excluded and no class has been generated for it\n";
+				}
 				if (component_returns_valid_hook[i])
 				{
 					String full_name_of_component=dt_as_structure.getComponent(i).getDataType().getPathName().replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");

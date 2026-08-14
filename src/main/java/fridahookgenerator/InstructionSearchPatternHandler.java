@@ -50,7 +50,8 @@ public class InstructionSearchPatternHandler {
 	public InstructionSearchPatternHandler(PluginTool incoming_plugintool, Program current_program, String incoming_instruction_pattern , String incoming_module_name_sanitized, String spaces ) {
 		this.incoming_plugintool=incoming_plugintool;
 		this.current_program=current_program;
-		this.incoming_instruction_pattern=incoming_instruction_pattern.toLowerCase().replace("\n"," ").replaceAll(" +", " ");
+		/*Careful: the pattern has to be stripped as well. Without it, a leading or trailing space (which is very easy to bring along when the pattern is pasted) makes the split on the spaces produce an empty part, and the whole pattern is then rejected as invalid*/
+		this.incoming_instruction_pattern=incoming_instruction_pattern.toLowerCase().replace("\n"," ").replace("\r"," ").replace("\t"," ").replaceAll(" +", " ").strip();
 		this.incoming_module_name_sanitized=incoming_module_name_sanitized;
 		this.spaces=spaces;
 	}
@@ -171,39 +172,117 @@ public class InstructionSearchPatternHandler {
 		{
 			return "//Given pattern for Memory Scan is not valid\n";
 		}
+		String modname=this.incoming_module_name_sanitized;
 		String retval="";
-		retval+=this.spaces+"var pattern_to_search_for= '"+frida_pattern+"'\n";
-		retval+=this.spaces+"var loaded_modules= Process.enumerateModulesSync()\n";
-		retval+=this.spaces+"for (var ind=0;ind<loaded_modules.length;ind++) {\n";
-		retval+=this.spaces+"    if (loaded_modules[ind].name===module_name_"+this.incoming_module_name_sanitized+") //Comment out if you want to search in every loaded module\n";
-		retval+=this.spaces+"    //if (loaded_modules[ind].name.toLowerCase().search('frida')===-1) //Comment out if you want to search in every loaded module\n";
+
+		retval+=this.spaces+"var pattern_to_search_for_"+modname+"= '"+frida_pattern+"'\n";
+		retval+=this.spaces+"\n";
+
+		/*
+		 * The name of a module is not spelled the same way everywhere, but the way it varies depends on the platform.
+		 * Careful: the tolerance that Windows needs (the case does not matter and the .dll suffix is not always part of the
+		 * name) must not be applied everywhere. On the other systems the file names are case sensitive, so being tolerant
+		 * there would let libFoo.so match libfoo.so, which is a different library, and its memory would be scanned instead.
+		 * The decision is taken at runtime, from Process.platform, because what matters is where the script is running.
+		 */
+		retval+=this.spaces+"/*The name of a module is not spelled the same way everywhere, and the module may also be known by its full path*/\n";
+		retval+=this.spaces+"function does_module_match_the_wanted_name_"+modname+"(module_to_check)\n";
+		retval+=this.spaces+"{\n";
+		retval+=this.spaces+"    var names_to_compare=[module_to_check.name]\n";
+		retval+=this.spaces+"    //the module may be known by its path, so the file name of that path is compared as well\n";
+		retval+=this.spaces+"    if (module_to_check.path!==null && module_to_check.path!==undefined)\n";
 		retval+=this.spaces+"    {\n";
-		retval+=this.spaces+"        var m=loaded_modules[ind]\n";
-		retval+=this.spaces+"        var ranges=m.enumerateRanges('r--')\n";
-		retval+=this.spaces+"        var cnt_of_results_for_module=0\n";
-		retval+=this.spaces+"        for (var rind=0;rind<ranges.length;rind++) {\n";
-		retval+=this.spaces+"            var r=ranges[rind]\n";
-		retval+=this.spaces+"            var res_of_memscan=Memory.scanSync(r.base,r.size,pattern_to_search_for)\n";
-		retval+=this.spaces+"            if (res_of_memscan.length>0) {\n";
-		retval+=this.spaces+"                //console.log('Found '+res_of_memscan.length+' results for pattern '+pattern_to_search_for+' inside module '+JSON.stringify(m)+' and range '+JSON.stringify(r))\n";
-		retval+=this.spaces+"                cnt_of_results_for_module+=res_of_memscan.length\n";
-		retval+=this.spaces+"                for (var j=0;j<res_of_memscan.length;j++) {\n";
-		retval+=this.spaces+"                    console.log('Hooking address '+res_of_memscan[j].address+' from module '+JSON.stringify(m)+ ' with offset '+res_of_memscan[j].address.sub(m.base))\n";
-		retval+=this.spaces+"                    var constructed_str_to_print='Reached address '+res_of_memscan[j].address+' inside module '+JSON.stringify(m)+ ' with offset '+res_of_memscan[j].address.sub(m.base)+' due to pattern '+ pattern_to_search_for \n";
-		retval+=this.spaces+"                    Interceptor.attach(res_of_memscan[j].address, () => {\n";
-		retval+=this.spaces+"                        console.log(constructed_str_to_print)\n";
-		retval+=this.spaces+"				     })\n";
-		retval+=this.spaces+"                }\n";
-		retval+=this.spaces+"            }\n";
+		retval+=this.spaces+"        var array_of_subdirs=module_to_check.path.split('/')\n";
+		retval+=this.spaces+"        var filename_of_module=array_of_subdirs[array_of_subdirs.length-1]\n";
+		retval+=this.spaces+"        array_of_subdirs=filename_of_module.split('\\\\')\n";
+		retval+=this.spaces+"        names_to_compare.push(array_of_subdirs[array_of_subdirs.length-1])\n";
+		retval+=this.spaces+"    }\n";
+		retval+=this.spaces+"    for (var nind=0;nind<names_to_compare.length;nind++)\n";
+		retval+=this.spaces+"    {\n";
+		retval+=this.spaces+"        var name_of_module=names_to_compare[nind]\n";
+		retval+=this.spaces+"        if (name_of_module===null || name_of_module===undefined) { continue }\n";
+		/*Careful: the tolerance of Windows is written inside the branch that checks the platform, and not behind a variable that was set earlier. It is the same shape as the comparison that the prologues emit, and it keeps everything that mentions a .dll in one place that is plainly guarded*/
+		retval+=this.spaces+"        if (Process.platform==='windows')\n";
+		retval+=this.spaces+"        {\n";
+		retval+=this.spaces+"            //in Windows the case does not matter and the .dll suffix is not always part of the name\n";
+		retval+=this.spaces+"            var lowercase_name=name_of_module.toLowerCase()\n";
+		retval+=this.spaces+"            var lowercase_wanted_name=module_name_"+modname+".toLowerCase()\n";
+		retval+=this.spaces+"            if (lowercase_name===lowercase_wanted_name || lowercase_name+'.dll'===lowercase_wanted_name || lowercase_name===lowercase_wanted_name+'.dll') { return true }\n";
+		retval+=this.spaces+"            continue\n";
 		retval+=this.spaces+"        }\n";
-		retval+=this.spaces+"        if (cnt_of_results_for_module==0) {\n";
-		retval+=this.spaces+"            console.log('Memory scan for pattern '+pattern_to_search_for+' did not give any results inside module '+JSON.stringify(m))\n";
-		retval+=this.spaces+"        } else {\n";
-		retval+=this.spaces+"            console.log('Memory scan for pattern '+pattern_to_search_for+' gave '+cnt_of_results_for_module+' results in total inside module '+JSON.stringify(m))\n";
-		retval+=this.spaces+"        }\n";
+		retval+=this.spaces+"        //everywhere else the file names are case sensitive, and a library is not a .dll\n";
+		retval+=this.spaces+"        if (name_of_module===module_name_"+modname+") { return true }\n";
+		retval+=this.spaces+"    }\n";
+		retval+=this.spaces+"    return false\n";
+		retval+=this.spaces+"}\n";
+		retval+=this.spaces+"\n";
+
+		/*Gather the ranges first, so that the scanning itself is one single loop*/
+		retval+=this.spaces+"var ranges_to_scan_"+modname+"=[]\n";
+		retval+=this.spaces+"var we_found_the_module_"+modname+"=false\n";
+		retval+=this.spaces+"var modulemap_for_the_memory_scan_"+modname+"=new ModuleMap()\n";
+		retval+=this.spaces+"var all_modules_"+modname+"=Process.enumerateModules()\n";
+		retval+=this.spaces+"for (var ind=0;ind<all_modules_"+modname+".length;ind++) {\n";
+		retval+=this.spaces+"    if (!does_module_match_the_wanted_name_"+modname+"(all_modules_"+modname+"[ind])) { continue }\n";
+		retval+=this.spaces+"    we_found_the_module_"+modname+"=true\n";
+		retval+=this.spaces+"    var readable_ranges_of_the_module=all_modules_"+modname+"[ind].enumerateRanges('r--')\n";
+		retval+=this.spaces+"    for (var rind=0;rind<readable_ranges_of_the_module.length;rind++) {\n";
+		retval+=this.spaces+"        ranges_to_scan_"+modname+".push({range_to_scan:readable_ranges_of_the_module[rind], description_of_range:'module '+all_modules_"+modname+"[ind].name})\n";
 		retval+=this.spaces+"    }\n";
 		retval+=this.spaces+"}\n";
-		
+		retval+=this.spaces+"\n";
+
+		/*Code does not only live inside modules*/
+		retval+=this.spaces+"/*Code does not only live inside modules: it can be JIT compiled, unpacked, decrypted or simply copied into an anonymous mapping, and none of that belongs to a module. Those ranges are scanned as well*/\n";
+		retval+=this.spaces+"/*Only the executable ones are taken, because what is being looked for is a pattern of instructions. Replace the 'r-x' with 'r--' to scan every readable range that belongs to no module, which finds code that is not executable yet but is a lot slower*/\n";
+		retval+=this.spaces+"var ranges_outside_of_the_modules_"+modname+"=Process.enumerateRanges('r-x')\n";
+		retval+=this.spaces+"for (var rind=0;rind<ranges_outside_of_the_modules_"+modname+".length;rind++) {\n";
+		retval+=this.spaces+"    if (modulemap_for_the_memory_scan_"+modname+".find(ranges_outside_of_the_modules_"+modname+"[rind].base)===null) {\n";
+		retval+=this.spaces+"        ranges_to_scan_"+modname+".push({range_to_scan:ranges_outside_of_the_modules_"+modname+"[rind], description_of_range:'memory that belongs to no module'})\n";
+		retval+=this.spaces+"    }\n";
+		retval+=this.spaces+"}\n";
+		retval+=this.spaces+"\n";
+
+		/*And now the scan itself*/
+		retval+=this.spaces+"var cnt_of_results_"+modname+"=0\n";
+		retval+=this.spaces+"for (var rind=0;rind<ranges_to_scan_"+modname+".length;rind++) {\n";
+		retval+=this.spaces+"    var r=ranges_to_scan_"+modname+"[rind].range_to_scan\n";
+		retval+=this.spaces+"    var res_of_memscan=[]\n";
+		retval+=this.spaces+"    try {\n";
+		retval+=this.spaces+"        res_of_memscan=Memory.scanSync(r.base,r.size,pattern_to_search_for_"+modname+")\n";
+		retval+=this.spaces+"    } catch (err) {\n";
+		retval+=this.spaces+"        //a range can stop being readable between the moment it is enumerated and the moment it is scanned, and one such range must not abort the whole scan\n";
+		retval+=this.spaces+"        console.log('Memory scan: the range at '+r.base+' of size '+r.size+' ('+ranges_to_scan_"+modname+"[rind].description_of_range+') could not be scanned, continuing')\n";
+		retval+=this.spaces+"        continue\n";
+		retval+=this.spaces+"    }\n";
+		retval+=this.spaces+"    cnt_of_results_"+modname+"+=res_of_memscan.length\n";
+		retval+=this.spaces+"    for (var j=0;j<res_of_memscan.length;j++) {\n";
+		retval+=this.spaces+"        var module_of_the_result=modulemap_for_the_memory_scan_"+modname+".find(res_of_memscan[j].address)\n";
+		retval+=this.spaces+"        var str_with_the_position_of_the_result=' inside '+ranges_to_scan_"+modname+"[rind].description_of_range\n";
+		retval+=this.spaces+"        if (module_of_the_result!==null) { str_with_the_position_of_the_result=' inside module '+JSON.stringify(module_of_the_result)+' with offset '+res_of_memscan[j].address.sub(module_of_the_result.base) }\n";
+		retval+=this.spaces+"        console.log('Hooking address '+res_of_memscan[j].address+str_with_the_position_of_the_result)\n";
+		retval+=this.spaces+"        //Careful: this has to be declared with let and not with var. A var is scoped to the whole function, so every hook of the loop would close over the same variable and they would all print the message of the last match\n";
+		retval+=this.spaces+"        let constructed_str_to_print='Reached address '+res_of_memscan[j].address+str_with_the_position_of_the_result+' due to pattern '+ pattern_to_search_for_"+modname+"\n";
+		retval+=this.spaces+"        try {\n";
+		retval+=this.spaces+"            Interceptor.attach(res_of_memscan[j].address, () => {\n";
+		retval+=this.spaces+"                console.log(constructed_str_to_print)\n";
+		retval+=this.spaces+"            })\n";
+		retval+=this.spaces+"        } catch (err) { console.log('Could not hook the address '+res_of_memscan[j].address+', continuing') }\n";
+		retval+=this.spaces+"    }\n";
+		retval+=this.spaces+"}\n";
+		retval+=this.spaces+"\n";
+
+		/*The reporting is outside of every loop, so that something is printed even when no module matched the name*/
+		retval+=this.spaces+"/*The reporting is done here, outside of the loops, so that something is always printed. It used to be inside the branch that matched the module, which meant that a name that matched nothing produced no output at all*/\n";
+		retval+=this.spaces+"if (!we_found_the_module_"+modname+") {\n";
+		retval+=this.spaces+"    console.log('Memory scan: no loaded module matched the name '+module_name_"+modname+"+', only the memory that belongs to no module was scanned')\n";
+		retval+=this.spaces+"}\n";
+		retval+=this.spaces+"if (cnt_of_results_"+modname+"==0) {\n";
+		retval+=this.spaces+"    console.log('Memory scan for pattern '+pattern_to_search_for_"+modname+"+' did not give any results in the '+ranges_to_scan_"+modname+".length+' ranges that were scanned')\n";
+		retval+=this.spaces+"} else {\n";
+		retval+=this.spaces+"    console.log('Memory scan for pattern '+pattern_to_search_for_"+modname+"+' gave '+cnt_of_results_"+modname+"+' results in total, in the '+ranges_to_scan_"+modname+".length+' ranges that were scanned')\n";
+		retval+=this.spaces+"}\n";
+
 		return retval;
 	}
 	

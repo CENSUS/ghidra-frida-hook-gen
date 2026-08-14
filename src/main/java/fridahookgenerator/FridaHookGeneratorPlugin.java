@@ -92,7 +92,9 @@ public class FridaHookGeneratorPlugin extends ProgramPlugin {
 	GenerateFridaHookScriptAction FridaHookSnippetAction;
 	GenerateFridaHookScriptAction FridaHookAdvancedAction;
 	SelectionHookGenerationAction SearchSelectionAction;
+	/*Careful: the two struct actions need one field each. They used to share one, which left the non recursive one reachable only through the tool, so anything that later used the field would have silently acted on the recursive one alone*/
 	StructAccessCodeGenerationAction StructAccessAction;
+	StructAccessCodeGenerationAction StructAccessRecursiveAction;
 	
 	/**
 	 * Plugin constructor.
@@ -135,9 +137,12 @@ public class FridaHookGeneratorPlugin extends ProgramPlugin {
 		StructAccessAction=new StructAccessCodeGenerationAction(this,false);
 		tool.addAction(StructAccessAction);
 		
-		/*And the same thing, but also recursively for substructs*/ 
-		StructAccessAction=new StructAccessCodeGenerationAction(this,true);
-		tool.addAction(StructAccessAction);
+		/*And the same thing, but also recursively for substructs*/
+		StructAccessRecursiveAction=new StructAccessCodeGenerationAction(this,true);
+		tool.addAction(StructAccessRecursiveAction);
+
+		/*The self test, which adds one option per level. Careful: this line is the only thing that ties the SelfTest directory to the plugin, so deleting that directory only needs this line removed. The options stay invisible unless Ghidra is started with -Dfridahookgenerator.selftest=1*/
+		fridahookgenerator.SelfTest.SelfTestAction.add_the_self_test_actions_to_the_tool(tool,this);
 				
 	}
 

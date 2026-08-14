@@ -101,6 +101,17 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	/*Range items*/
 	public JCheckBox HookThisAddressCheckBox;
 	public Boolean isHookThisAddressCheckBoxchecked;
+
+	/*
+	 * True when this dialog was built by code that sets the options by hand and never shows it to anybody, which is what the
+	 * constructor for the api does. The selections that the dialog starts with are then not applied, because there is no user
+	 * for them: applying them would overwrite what the caller asked for, and okCallback() would afterwards read the overwritten
+	 * components back into the options.
+	 *
+	 * Careful: this is set by the constructor and not by the caller. A caller only ever sets the options themselves, the way it
+	 * does for every other option of this dialog.
+	 */
+	protected Boolean the_options_are_set_by_a_caller_and_the_dialog_is_never_shown;
 	public JCheckBox RangeAddressesCheckBox;
 	public Boolean isRangeAddressesCheckBoxchecked;
 	public JCheckBox RangeFunctionsCheckBox;
@@ -185,6 +196,19 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	{
 		/*Constructor that is used for API calling*/
 		this("API-generated Advanced Hook Options Dialog", tool, current_program,true);
+
+		/*
+		 * Nobody is going to see this dialog, so nobody can tick or untick anything in it: the fields that the caller sets are the
+		 * only truth about what was asked for, and the components must not be allowed to overrule them.
+		 */
+		this.the_options_are_set_by_a_caller_and_the_dialog_is_never_shown=true;
+
+		/*
+		 * The hooking of the address the dialog was opened on is on by default when a user opens the dialog, so it has to be on by
+		 * default for a caller that says nothing about it too. A caller that wants the opposite sets the field to false, exactly
+		 * the way it sets every other option, and from here on nothing switches it back on.
+		 */
+		this.isHookThisAddressCheckBoxchecked=true;
 	}
 	
 	public AdvancedHookOptionsDialog(String title, PluginTool tool, Program current_program,Boolean is_invoked_from_selecting_multiple_addresses) {
@@ -193,6 +217,8 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.current_program=current_program;
 		this.isOKpressed=false;
 		this.is_invoked_from_selecting_multiple_addresses=is_invoked_from_selecting_multiple_addresses;
+		/*A dialog built through this constructor is one that a user is going to see, unless the constructor for the api says otherwise*/
+		this.the_options_are_set_by_a_caller_and_the_dialog_is_never_shown=false;
 		this.isReferencestoAddressCheckBoxchecked=false;
 		this.isFunctionsReferencingAddressCheckBoxchecked=false;
 		this.isReferencestoFunctionCheckboxchecked=false;
@@ -264,10 +290,10 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		OutReferencesfromAddressCheckBox = new GCheckBox("Generate Hooks for the addresses (statically) referenced by the current address");
 		OutReferencesfromAddressCheckBox.setToolTipText(
 				"Generate Hooks for the addresses (statically) referenced by the current address. Appears only during selection of multiple addresses");
-		OutDynamicCallReferencesfromAddressCheckBox = new GCheckBox("For every instruction to be hooked, if it is a dynamic (computed) call, print which address the execution will land on (X64,AARCH64 only)");
-		OutDynamicCallReferencesfromAddressCheckBox.setToolTipText("For every instruction to be hooked, if it is a dynamic (computed) call, print which address the execution will land on (X64,AARCH64 only)");
-		OutDynamicCallReferencesfromFunctionCheckBox = new GCheckBox("For each dynamic (computed) call in current function, print which address the execution will land on when this call is executed (X64,AARCH64 only)");
-		OutDynamicCallReferencesfromFunctionCheckBox.setToolTipText("For each dynamic (computed) call in current function, print which address the execution will land on when this call is executed (X64,AARCH64 only)");
+		OutDynamicCallReferencesfromAddressCheckBox = new GCheckBox("For every instruction to be hooked, if it is a dynamic (computed) call, print which address the execution will land on (X64,AARCH64,ARM32 only)");
+		OutDynamicCallReferencesfromAddressCheckBox.setToolTipText("For every instruction to be hooked, if it is a dynamic (computed) call, print which address the execution will land on (X64,AARCH64,ARM32 only)");
+		OutDynamicCallReferencesfromFunctionCheckBox = new GCheckBox("For each dynamic (computed) call in current function, print which address the execution will land on when this call is executed (X64,AARCH64,ARM32 only)");
+		OutDynamicCallReferencesfromFunctionCheckBox.setToolTipText("For each dynamic (computed) call in current function, print which address the execution will land on when this call is executed (X64,AARCH64,ARM32 only)");
 
 		
 		HookThisAddressCheckBox = new GCheckBox("Generate a Hook for this (the current) address, through which this dialog was spawned");
@@ -384,7 +410,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		
 
 		AIChatFunctionRegexCheckBox=new GCheckBox("(Requires ChatGPT API Key) Generate hooks for functions, whose name is related to ");
-		AIChatFunctionRegexCheckBox.setToolTipText("<html>This option reqires a ChatGPT API Key placed in the file ~/.ghidra/chatgpt_apikey.txt.<br> It queries the chatbot, *SENDS TO IT ALL THE FUNCTION NAMES*, and asks it to create a regular expression that matches the user-provided category.<br> For example, the category may be \"jailbreak detection\". <html>");
+		AIChatFunctionRegexCheckBox.setToolTipText("<html>This option reqires a ChatGPT API Key placed in the file ~/.ghidra/chatgpt_apikey.txt.<br> It queries the chatbot, *SENDS TO IT ALL THE FUNCTION NAMES* (in batches), and asks it which of them are related to the user-provided category.<br> For example, the category may be \"jailbreak detection\". <html>");
 		AIChatFunctionRegexTextField=new JTextField(10);
 		
 		
@@ -453,8 +479,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		{
 			outreferencesPanel.add(OutReferencesfromAddressCheckBox);
 		}
-		//currently, dynamic hooking is not provided
-		if (false && (this.current_program.getLanguage().getLanguageID().toString().indexOf("AARCH64:LE:64")>=0 || this.current_program.getLanguage().getLanguageID().toString().indexOf("x86:LE:64")>=0))
+		//currently, dynamic hooking is not provided. Remove the "false &&" to enable it
+		/*Careful: x86:LE: and not x86:LE:64 , because the computed calls are handled for both widths of x86. The same three architectures as the ones that HookGeneratorUtils asks about*/
+		if (false && (this.current_program.getLanguage().getLanguageID().toString().indexOf("AARCH64:LE:64")>=0 || this.current_program.getLanguage().getLanguageID().toString().indexOf("x86:LE:")>=0 || this.current_program.getLanguage().getLanguageID().toString().indexOf("ARM:LE:32")>=0))
 		{
 			outreferencesPanel.add(OutDynamicCallReferencesfromAddressCheckBox);
 			outreferencesPanel.add(OutDynamicCallReferencesfromFunctionCheckBox);
@@ -590,8 +617,15 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		FunctionsReferencingFunctionCheckbox.setEnabled(true);
 		GenerateScriptCheckbox.setEnabled(true);
 		GenerateScriptCheckbox.setSelected(false);
-		HookThisAddressCheckBox.setEnabled(true);
-		HookThisAddressCheckBox.setSelected(true); //by default, this one is true
+		HookThisAddressCheckBox.setEnabled(true);	//always enabled, because okCallback() ignores a component that is disabled
+		if (!the_options_are_set_by_a_caller_and_the_dialog_is_never_shown.booleanValue())
+		{
+			/*
+			 * By default, this one is true. It is only applied for a dialog that a user is going to see: for one that was built by a
+			 * caller there is nobody to untick it, so ticking it here would make the option impossible to switch off.
+			 */
+			HookThisAddressCheckBox.setSelected(true);
+		}
 		RangeAddressesCheckBox.setEnabled(true);
 		RangeFunctionsCheckBox.setEnabled(true);
 		OutputReasonForHookGenCheckbox.setEnabled(true);

@@ -177,9 +177,13 @@ public class SelectionHookGenerationTaskDispatcher {
 			clipboard.setContents(stringSelection, null);
 		}				
 		
-		//Print to Ghidra Console, but do not print if it is invoked through the GhidraScript with a created AdvancedHookOptionsDialog. 
-		//In that case, the hook string will be returned to the user. 
-		if (this.consoleService!=null && (!this.is_invoked_with_a_created_advancedhookoptions_dialog))
+		//Print to Ghidra Console, but do not print if it is invoked through the GhidraScript with a created AdvancedHookOptionsDialog.
+		//In that case, the hook string will be returned to the user.
+		if (this.is_invoked_with_a_created_advancedhookoptions_dialog)
+		{
+			//nothing is printed, the hook string is returned to the script that asked for it
+		}
+		else if (this.consoleService!=null)
 		{
 			this.consoleService.println(hook_str);
 		}

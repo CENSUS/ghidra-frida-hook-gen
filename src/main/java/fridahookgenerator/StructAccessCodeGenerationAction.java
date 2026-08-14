@@ -115,18 +115,29 @@ public class StructAccessCodeGenerationAction extends DockingAction {
 		}
 		
 		
+		/*
+		 * Careful: the check on the type of the context above says nothing about the object that the context carries, as
+		 * getContextObject() returns an Object and it is whoever created the context that decided what to put in it. The
+		 * type of that object therefore has to be checked before it is cast. Using instanceof also takes care of a null
+		 * context object, which would pass a cast and then fail on the line that follows it.
+		 */
 		Object contextObject = context.getContextObject();
+		if (!(contextObject instanceof GTree)) {
+			return false;
+		}
 		GTree gtree = (GTree) contextObject;
+		/*Careful: getSelectionPaths() is documented to return null when nothing is selected, and this function is called by the framework all the time, including when nothing is selected*/
 		TreePath[] selectionPaths = gtree.getSelectionPaths();
-		if (selectionPaths.length != 1) {
+		if (selectionPaths==null || selectionPaths.length != 1) {
 			return false;
 		}
 
-		GTreeNode node = (GTreeNode) selectionPaths[0].getLastPathComponent();
-		if (!(node instanceof DataTypeNode)) {
+		/*Careful: getLastPathComponent() returns an Object, so it is checked with instanceof and cast once. A DataTypeNode is a GTreeNode, so the intermediate cast to GTreeNode was one more cast that nothing was guarding*/
+		Object last_component_of_the_selected_path=selectionPaths[0].getLastPathComponent();
+		if (!(last_component_of_the_selected_path instanceof DataTypeNode)) {
 			return false;
 		}
-		DataTypeNode dtNode = (DataTypeNode) node;
+		DataTypeNode dtNode = (DataTypeNode) last_component_of_the_selected_path;
 		DataType dataType = dtNode.getDataType();
 		//return dataType instanceof Composite || dataType instanceof Enum;
 		return (dataType instanceof Composite && dataType instanceof Structure); 
@@ -135,8 +146,26 @@ public class StructAccessCodeGenerationAction extends DockingAction {
 	@Override
 	public void actionPerformed(ActionContext context) {
 
-		GTree gTree = (GTree) context.getContextObject();
+		/*
+		 * These checks are the same ones that isEnabledForContext() has already made, and the action is only invoked when
+		 * that returned true. They are repeated because the state is read again here instead of being carried over, and
+		 * because a selection that changes in between must not bring the tool down.
+		 */
+		Object contextObject = context.getContextObject();
+		if (!(contextObject instanceof GTree)) {
+			System.out.println("The context of the action does not carry a GTree, no offsets are generated");
+			return;
+		}
+		GTree gTree = (GTree) contextObject;
 		TreePath[] selectionPaths = gTree.getSelectionPaths();
+		if (selectionPaths==null || selectionPaths.length!=1) {
+			System.out.println("There is no single selected data type any more, no offsets are generated");
+			return;
+		}
+		if (!(selectionPaths[0].getLastPathComponent() instanceof DataTypeNode)) {
+			System.out.println("The selected node is not a data type, no offsets are generated");
+			return;
+		}
 		final DataTypeNode dataTypeNode = (DataTypeNode) selectionPaths[0].getLastPathComponent();
 
 		PluginTool tool = this.incoming_plugin.getTool();
@@ -145,6 +174,11 @@ public class StructAccessCodeGenerationAction extends DockingAction {
 		
 		
 		DataType dt = dataTypeNode.getDataType();
+		/*Careful: the same reasoning as above. isEnabledForContext() has already checked that this is a Structure, but the data type is read again here, so the check is repeated before the cast*/
+		if (!(dt instanceof Structure)) {
+			System.out.println("The selected data type is not a structure, no offsets are generated");
+			return;
+		}
 		Structure dt_as_structure = (Structure) dt;
 		
 		

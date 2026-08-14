@@ -28,7 +28,14 @@
 
 package fridahookgenerator;
 
+import ghidra.program.model.listing.Instruction;
+
 public interface ParserOfComputedCalls {
 
-	public String create_frida_code_for_call_arg(String mnemonic,String arg);
+	/*
+	 * Returns the frida code that calculates the destination of a computed call/jump, or the empty string when the
+	 * argument cannot be translated. The whole Instruction is provided, because some forms (like the RIP relative
+	 * addressing of x64) can only be resolved if the address and the length of the instruction are known.
+	 */
+	public String create_frida_code_for_call_arg(String mnemonic,String arg,Instruction incoming_instruction);
 }

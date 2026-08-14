@@ -1,4 +1,4 @@
-/* 
+/*
  * BSD 2-Clause License
  *
  * Copyright (c) 2022, CENSUS
@@ -9,11 +9,11 @@
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
  *    list of conditions and the following disclaimer.
- * 
+ *
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,67 +28,85 @@
 
 package fridahookgenerator.ParsersOfComputedCalls;
 
-import java.util.ArrayList;
-
-import docking.action.KeyBindingType;
 import fridahookgenerator.ParserOfComputedCalls;
-import ghidra.framework.plugintool.Plugin;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.Processor;
+import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.ProgramSelection;
 
-/*This class basically returns the argument to BLR <arg> in ARM64, translated into frida code. Much simpler than x64.*/
+/*
+ * This class basically returns the argument to BLR <arg> in ARM64, translated into frida code. Much simpler than x64.
+ *
+ * All the branches to a register are handled: blr/br, the variants that authenticate against a zero modifier
+ * (blraaz/blrabz/braaz/brabz), and the ones that carry their modifier in a second operand (blraa/blrab/braa/brab), of
+ * which only the first operand holds the destination. The destination of every authenticated variant has to be stripped
+ * of its pointer authentication code.
+ */
 public class ARM64ParserOfComputedCall implements ParserOfComputedCalls{
 
 	private Program incoming_program;
 	private Language current_program_language;
 	private Processor current_program_processor;
 	private String incoming_module_name_sanitized;
-	
+
 	public ARM64ParserOfComputedCall(Program incoming_program, String incoming_module_name_sanitized) {
 		this.incoming_program=incoming_program;
 		this.current_program_language = this.incoming_program.getLanguage();
 		this.current_program_processor = this.current_program_language.getProcessor();
 		this.incoming_module_name_sanitized=incoming_module_name_sanitized;
 	}
-	
-	
-	public String create_frida_code_for_call_arg(String mnemonic,String arg)
+
+
+	public String create_frida_code_for_call_arg(String mnemonic,String arg,Instruction incoming_instruction)
 	{
-		String retval="";
-		String arg_str_possibly_altered=arg;
-		
-		if (arg=="")
+		/*Careful: the comparisons have to be done with equals(), as the incoming mnemonic and argument are runtime strings (they come from Instruction.getMnemonicString()/toString()) and are therefore not interned*/
+		if (arg==null || arg.trim().equals("") || mnemonic==null)
 		{
 			return "";
 		}
-		arg=arg.trim();
-		
-		if (mnemonic == "blr" || mnemonic == "br" || mnemonic == "bx")
+		arg=arg.trim().toLowerCase();
+		mnemonic=mnemonic.trim().toLowerCase();
+
+		/*The authenticated variants that carry a modifier have it in a second operand (blraa x8,x9), and only the first one holds the destination*/
+		if (arg.indexOf(",")>=0)
 		{
-			arg_str_possibly_altered=arg;
+			arg=arg.split(",")[0].trim();
 		}
-		if (mnemonic == "blraaz")
+
+		/*x0 up to x30. Careful: xzr is not accepted, as it never holds the destination of a branch, and neither are the 32 bit registers, as they cannot hold an address*/
+		if (!arg.matches("x([0-9]|1[0-9]|2[0-9]|30)"))
 		{
-			arg_str_possibly_altered=arg+".strip(\"ia\")";
+			return "";
 		}
-		if (mnemonic == "blrabz")
+
+		/*The frida CpuContext of AArch64 names the last two registers fp and lr, it does not have an x29/x30 field*/
+		String register_of_frida_context=arg;
+		if (arg.equals("x29")) { register_of_frida_context="fp"; }
+		if (arg.equals("x30")) { register_of_frida_context="lr"; }
+
+		/*
+		 * The pointer authentication code has to be removed from the destination of the authenticated variants.
+		 * strip() removes it without authenticating (it is the equivalent of an xpaci), so it does not need to know the
+		 * modifier, and it can therefore be used for the variants that carry one in a second operand as well.
+		 */
+		String suffix_that_strips_the_pointer_authentication_code="";
+		if (mnemonic.equals("blr") || mnemonic.equals("br"))
 		{
-			arg_str_possibly_altered=arg+".strip(\"ib\")";
+			suffix_that_strips_the_pointer_authentication_code="";
 		}
-		//blraa, blrab not yet supported
-		
-		if (arg.matches("x[0-9]+$"))
+		else if (mnemonic.equals("blraa") || mnemonic.equals("blraaz") || mnemonic.equals("braa") || mnemonic.equals("braaz"))
 		{
-			retval+="(this.context."+arg_str_possibly_altered.toLowerCase()+")";
+			suffix_that_strips_the_pointer_authentication_code=".strip(\"ia\")";
+		}
+		else if (mnemonic.equals("blrab") || mnemonic.equals("blrabz") || mnemonic.equals("brab") || mnemonic.equals("brabz"))
+		{
+			suffix_that_strips_the_pointer_authentication_code=".strip(\"ib\")";
 		}
 		else
 		{
 			return "";
 		}
-		
-		return retval;
-	}	
+
+		return "(this.context."+register_of_frida_context+suffix_that_strips_the_pointer_authentication_code+")";
+	}
 }

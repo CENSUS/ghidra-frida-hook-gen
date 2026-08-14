@@ -173,30 +173,41 @@ public class FridaHookGeneratorAPIHandler {
 		
 		for (int i=0;i<str_parts.length;i++)
 		{
-
-			if (str_parts[i].indexOf("-")<0)  //if '-' is present, we must ignore the address
+			/*Careful: the parts have to be stripped. A list that is written with a space after the comma is the most natural thing to write, and without this the addresses that follow a space are silently dropped*/
+			String current_part=str_parts[i].strip();
+			if (current_part.equals(""))
 			{
-				//try to decode 
+				continue;
+			}
+
+			if (current_part.indexOf("-")<0)  //if '-' is present, we must ignore the address
+			{
+				//try to decode
 				long tmplong=-1;
 				try {
-					tmplong=Long.parseLong(str_parts[i],16);
+					tmplong=Long.parseLong(current_part,16);
 				}
 				catch (NumberFormatException ex)
 				{
 					//nothing, this address will not be put into the list
+					System.out.println("The address "+current_part+" could not be decoded, it will not be hooked");
 				}
 				if (tmplong!=-1)
 				{
 					//a Program may have multiple addresses spaces, but we will only take the address belonging to the first. TODO
-					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(str_parts[i]);
+					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(current_part);
 					if (array_of_addresses_for_this_addr.length>0 && current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0])!=null)
 					{
 						retval.add(current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0]));
 					}
+					else
+					{
+						System.out.println("There is no code unit at the address "+current_part+", it will not be hooked");
+					}
 				}
 			}
 		}
-		
+
 		return retval;
 	}
 	
@@ -208,22 +219,29 @@ public class FridaHookGeneratorAPIHandler {
 		
 		for (int i=0;i<str_parts.length;i++)
 		{
-
-			if (str_parts[i].indexOf("-")==0)  //we must only put into the retval the addresses that have a negative number
+			/*Careful: the parts have to be stripped here as well, for the same reason as in the function above*/
+			String current_part=str_parts[i].strip();
+			if (current_part.equals(""))
 			{
-				//try to decode 
+				continue;
+			}
+
+			if (current_part.indexOf("-")==0)  //we must only put into the retval the addresses that have a negative number
+			{
+				//try to decode
 				long tmplong=-1;
 				try {
-					tmplong=Long.parseLong(str_parts[i],16);
+					tmplong=Long.parseLong(current_part,16);
 				}
 				catch (NumberFormatException ex)
 				{
 					//nothing, this address will not be put into the list
+					System.out.println("The address "+current_part+" could not be decoded, it will not be excluded from hooking");
 				}
 				if (tmplong!=-1)
 				{
 					//a Program may have multiple addresses spaces, but we will only take the address belongng to the first. TODO
-					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(str_parts[i].substring(1));
+					Address[] array_of_addresses_for_this_addr=this.current_program.parseAddress(current_part.substring(1));
 					if (array_of_addresses_for_this_addr.length>0 && current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0])!=null)
 					{
 						retval.add(current_program_listing.getCodeUnitAt(array_of_addresses_for_this_addr[0]));
@@ -232,8 +250,15 @@ public class FridaHookGeneratorAPIHandler {
 			}
 		}
 		
-		//return the distinct code units
-		return (ArrayList<CodeUnit>) retval.stream().distinct().collect(Collectors.toList());
+		/*
+		 * The distinct code units, collected straight into the kind of list that this method hands back.
+		 * Careful: this used to collect with Collectors.toList() and cast the result to an ArrayList. That cast is not one the
+		 * compiler complains about, because the type of the items matches, but Collectors.toList() promises nothing at all about
+		 * which kind of list it returns. It happens to be an ArrayList today, so the cast happens to work, and it would start
+		 * throwing on every call through the api the day somebody replaced that collector with Stream.toList() or with
+		 * Collectors.toUnmodifiableList(). Asking for the list to be built as an ArrayList in the first place needs no cast.
+		 */
+		return retval.stream().distinct().collect(Collectors.toCollection(ArrayList::new));
 	}
 	
 	

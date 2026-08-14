@@ -144,6 +144,12 @@ public class SelectionHookGenerationAction extends DockingAction {
 				int length_of_codeunit=current_code_unit.getLength();
 				if (current_address.equals(current_code_unit.getMinAddress()))
 				{
+				    /*
+				     * These next() calls are made without asking the iterator whether it still has addresses, because a
+				     * selection is expected to always contain whole code units. If a selection could ever end in the middle
+				     * of one, the iterator would run out before the end of the code unit was reached and this would throw a
+				     * NoSuchElementException.
+				     */
 				    for (int i=0;i<length_of_codeunit-1;i++)
 				    {
 				        address_iterator.next(); //skip the rest of the addresses until the end of the codeunit

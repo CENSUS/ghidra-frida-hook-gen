@@ -2,7 +2,7 @@
  *
  * Copyright (c) 2022, CENSUS
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
@@ -12,7 +12,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *   this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,8 +23,9 @@
  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * 
+ *
  */
+
 // Builds a Ghidra Extension for a given Ghidra installation.
 //
 // An absolute path to the Ghidra installation directory must be supplied either by setting the 
@@ -50,12 +51,20 @@ if (System.env.GHIDRA_INSTALL_DIR) {
 else if (project.hasProperty("GHIDRA_INSTALL_DIR")) {
 	ghidraInstallDir = project.getProperty("GHIDRA_INSTALL_DIR")
 }
-
-if (ghidraInstallDir) {
-	apply from: new File(ghidraInstallDir).getCanonicalPath() + "/support/buildExtension.gradle"
-}
 else {
+	/*
+	 * Careful: this used to put the text <REPLACE> in here and carry on, which meant that a build started without the variable
+	 * failed further down, inside the apply of Ghidra's own script, with a message about a path that nobody had typed. Saying it
+	 * here names the one thing that is missing.
+	 */
 	throw new GradleException("GHIDRA_INSTALL_DIR is not defined!")
+}
+
+task distributeExtension {
+	group = "Ghidra"
+
+	apply from: new File(ghidraInstallDir).getCanonicalPath() + "/support/buildExtension.gradle"
+	dependsOn ':buildExtension'
 }
 //----------------------END "DO NOT MODIFY" SECTION-------------------------------
 
@@ -69,4 +78,24 @@ repositories {
 dependencies {
 	// Any external dependencies added here will automatically be copied to the lib/ directory when
 	// this extension is built.	
+}
+
+// Exclude additional files from the built extension
+// Ex: buildExtension.exclude '.idea/**'
+
+/*
+ * The script that runs the self test must not be shipped to the users of the extension. Everything under ghidra_scripts/
+ * otherwise ends up inside the zip and appears in the Script Manager of everybody who installs it.
+ *
+ * Careful: this only keeps the file out of the built zip, the file stays where it is in the source tree. To run the self
+ * test, add the ghidra_scripts directory of this source tree to the script directories of Ghidra (Script Manager -> the
+ * "Manage Script Directories" button -> add it), or copy that one file into ~/ghidra_scripts .
+ * The classes of the SelfTest package are still compiled into the jar. They do nothing at all unless Ghidra is started
+ * with -Dfridahookgenerator.selftest=1 , which is what makes the three right click options appear.
+ */
+buildExtension.exclude 'ghidra_scripts/RunFridaHookGeneratorSelfTest.java'
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ["-Xlint:deprecation"]
+    //options.compilerArgs += ["-Xlint:unchecked"]
 }
