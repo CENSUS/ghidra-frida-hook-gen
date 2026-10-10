@@ -200,8 +200,14 @@ public class StructAccessCodeGenerator {
 			{
 				fieldnames[i]=fieldname.replaceAll("[^"+this.characters_allowed_in_variable_name+"]", "_");
 			}
-			field_displaynames_for_types[i]=dataTypeComponent.getDataType().getDisplayName().replace("\n", " ");
-			field_descriptions_for_types[i]=dataTypeComponent.getDataType().getDescription().replace("\n", " ");
+			/*
+			 * Careful: both of these are written into a comment of the generated script, and both come from the database, which took
+			 * them from the debugging information of the analysed file. Replacing the line feed alone used to be what was done here,
+			 * and it is not enough: a carriage return ends a line of javascript on its own, as do the line separator and the
+			 * paragraph separator, and these two are written at the end of a line that carries real code in front of them.
+			 */
+			field_displaynames_for_types[i]=HookGeneratorUtils.return_text_safe_for_a_javascript_comment(dataTypeComponent.getDataType().getDisplayName());
+			field_descriptions_for_types[i]=HookGeneratorUtils.return_text_safe_for_a_javascript_comment(dataTypeComponent.getDataType().getDescription());
 			list_of_offsets_in_bytes[i]=dataTypeComponent.getOffset();
 			list_of_lengths_in_bytes[i]=dataTypeComponent.getLength();
 			is_bitfied[i]=dataTypeComponent.isBitFieldComponent();

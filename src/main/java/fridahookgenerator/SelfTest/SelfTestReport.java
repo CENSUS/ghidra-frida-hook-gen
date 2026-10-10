@@ -67,6 +67,18 @@ public class SelfTestReport {
 		this.how_many_checks_were_run++;
 	}
 
+	/*
+	 * How many checks have been run so far, which is what lets a step say how many cases it ran without anybody counting them by
+	 * hand. A step reads this before it starts and again when it ends, exactly as it already does with the errors it produced.
+	 *
+	 * Careful: a number typed into the summary by hand is a number that goes stale the first time a case is added, and nothing
+	 * anywhere would notice, because the text of a summary is only ever printed and never compared with anything.
+	 */
+	public int return_how_many_checks_were_run()
+	{
+		return this.how_many_checks_were_run;
+	}
+
 	public SelfTestFinding add_finding(SelfTestFinding finding)
 	{
 		finding.name_of_combination=this.name_of_the_current_combination;

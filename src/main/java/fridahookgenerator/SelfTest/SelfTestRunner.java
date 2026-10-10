@@ -903,6 +903,66 @@ public class SelfTestRunner {
 			run_one_combination("the Interceptor.replace form with the names of the parameters"+on,options,address,expectations_for_replace);
 
 			/*
+			 * The replacement, with the calling convention of the database told to frida.
+			 *
+			 * On a program whose conventions have never been worked out this produces a hook with no abi and a comment saying that
+			 * there was nothing to tell, and on one that has been through the analysis it produces the abi itself. Both are correct
+			 * outputs, so nothing is demanded of which one appears: what the checks make sure of is that whatever is written is one
+			 * of the abis frida accepts, that the two places that carry it agree, and that it is not written at all on a target that
+			 * has only one abi to offer.
+			 */
+			options=create_the_options();
+			if (options==null) { return; }
+			options.isCustomFunInterceptorHookOutputCheckboxchecked=true;
+			options.CustomFunInterceptorHookOutputcomboBox.setSelectedIndex(2);	//Interceptor.replace()
+			options.isUseTheCallingConventionForTheAbicheckboxchecked=true;
+			options.isIncludeFunParamNamescheckboxchecked=true;
+			GeneratedScriptChecker.Expectations expectations_for_the_abi=new_expectations_for(false,address);
+			expectations_for_the_abi.the_interceptor_replace_form_is_expected=true;
+			run_one_combination(Level.MEDIUM,"the Interceptor.replace form with the calling convention told to frida"+on,options,address,expectations_for_the_abi);
+
+			/*
+			 * And the same option on a hook that attaches, which is the form that cannot be told a convention at all. There the
+			 * option reads each argument out of the place the database gives it instead: the ones a register convention keeps out
+			 * of args[] are read from this.context, and the ones on the stack from the args[] that really carries them, which is
+			 * not the one that matches their position. The names of the parameters are asked for as well, so that the line which
+			 * saves an argument for the onLeave is written too and not only the one that prints it.
+			 */
+			options=create_the_options();
+			if (options==null) { return; }
+			options.isUseTheCallingConventionForTheAbicheckboxchecked=true;
+			options.isIncludeFunParamNamescheckboxchecked=true;
+			run_one_combination(Level.MEDIUM,"a hook that attaches, with the calling convention told to frida"+on,options,address,new_expectations_for(false,address));
+
+			/*
+			 * The same option on a hook that is asked to read no argument at all: nothing is printed and, with the names not asked
+			 * for either, nothing is saved. No argument can then be read out of a register however the convention passes it, so the
+			 * hook falls back to the comment that tells the reader which register to look in by hand. A hook without an onEnter, a
+			 * function the database gives no parameters, and a parameter whose storage cannot be read all end at the same comment.
+			 */
+			options=create_the_options();
+			if (options==null) { return; }
+			options.isUseTheCallingConventionForTheAbicheckboxchecked=true;
+			options.isDoNotIncludeFunParamscheckboxchecked=true;
+			run_one_combination(Level.MEDIUM,"the calling convention told to frida, with the parameters not printed at all"+on,options,address,new_expectations_for(false,address));
+
+			/*
+			 * And the one that tells the two shapes of reading an argument apart: the names are asked for, so an argument out of a
+			 * register is saved into this.arg_<name> for the onLeave to reach, while the printing is switched off, so none of them
+			 * is written into a message.
+			 *
+			 * The option that refuses to print the parameters refuses exactly that and not the remembering of them, so the hook is
+			 * right to carry the line that saves an argument out of a register. A check that looked for the register itself, rather
+			 * than for the concatenation that prints one, would call this hook wrong.
+			 */
+			options=create_the_options();
+			if (options==null) { return; }
+			options.isUseTheCallingConventionForTheAbicheckboxchecked=true;
+			options.isDoNotIncludeFunParamscheckboxchecked=true;
+			options.isIncludeFunParamNamescheckboxchecked=true;
+			run_one_combination(Level.MEDIUM,"the calling convention told to frida, with the parameters saved but not printed"+on,options,address,new_expectations_for(false,address));
+
+			/*
 			 * The replacement, with a backtrace asked for in each of the two ways that matter.
 			 * A replacement is entered at the beginning of the function it replaces, so both ways have to put a backtrace in
 			 * it. The way of index 0 used to put none at all, because the code that writes the backtrace was told that a

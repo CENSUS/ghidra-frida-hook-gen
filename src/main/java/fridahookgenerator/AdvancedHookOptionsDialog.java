@@ -43,6 +43,7 @@ import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.ToolTipManager;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -152,6 +153,13 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public JComboBox<String> GenerateBacktracecomboBox;
 	public JCheckBox GenerateNormalAddressHooksForFunctionBeginningscheckbox;
 	public Boolean isGenerateNormalAddressHooksForFunctionBeginningscheckboxchecked;
+	/*
+	 * Careful: this one is only put on the dialog for a program whose architecture can have more than one calling convention that
+	 * frida is able to be told about, which today means 32 bit x86 built by Visual Studio. Everywhere else it would be a control
+	 * that changes nothing, so it is not shown at all, and being unshown it is never selected and the option stays off.
+	 */
+	public JCheckBox UseTheCallingConventionForTheAbicheckbox;
+	public Boolean isUseTheCallingConventionForTheAbicheckboxchecked;
 
 	/*Multi-Hook management items*/
 	public JCheckBox FunctionRegexCheckBox;
@@ -224,6 +232,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		this.isReferencestoFunctionCheckboxchecked=false;
 		this.isFunctionsReferencingFunctionCheckboxchecked=false;
 		this.isGenerateScriptCheckboxchecked=false;
+		this.isUseTheCallingConventionForTheAbicheckboxchecked=false;	//off unless it is asked for, which keeps the output exactly as it was before the abi was ever written
 		this.isHookThisAddressCheckBoxchecked=false;
 		this.isRangeAddressesCheckBoxchecked=false;
 		this.isRangeFunctionsCheckBoxchecked=false;
@@ -357,6 +366,14 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		String[] ways_for_script_generation={"Default method that waits 2s", "dlopen() method", "LoadLibrary() method", "attachModuleObserver() method"};
 		TypeofScriptGenerationcomboBox=new JComboBox<>(ways_for_script_generation);
 		
+		UseTheCallingConventionForTheAbicheckbox= new GCheckBox("Tell frida the calling convention (abi) of each function, and read the arguments from where it puts them");
+		UseTheCallingConventionForTheAbicheckbox.setToolTipText(
+				"<html>Without this option no abi is written and frida uses the one of the system, which is what this plugin has always done.<br>"
+				+ "With it, an Interceptor.replace() hook is given the abi that matches the calling convention the database has for the function, which on this architecture is a real choice: __stdcall, __fastcall and __thiscall are passed on as stdcall, fastcall and thiscall.<br>"
+				+ "Interceptor.attach() cannot be told a calling convention at all, so there the arguments themselves are read from where the database places them: the ones a convention passes in registers are read from this.context, and the rest from the args[] that really carries them, which is not always the one that matches their position.<br>"
+				+ "Careful: where even one argument sits somewhere that cannot be read, every argument of that function stays at args[] and the hook carries a comment saying what to do by hand, because placing some of them and not the rest would print the value of one argument under the name of another.<br>"
+				+ "Careful as well: a convention that is not committed in the database is never guessed. Run Analysis -&gt; Decompiler Parameter ID first, or the hooks will say that there was nothing to tell frida.<html>");
+
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox= new GCheckBox("For function beginnings, do not use OnEnter()/OnLeave() methods at all, but generate hooks treating them as normal addresses");
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setToolTipText(
 				"<html>If an adress is at the start of a function, then normally onEnter()/onLeave() methods are created in its hook. This option forces the address to be treated as any other address, without onEnter()/onLeave() methods. <br>This will also cause the execution to not follow any code paths that assume that the address is at the start of a function.<html>");
@@ -523,6 +540,16 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		outputPanel.add(DoNotIncludeFunParamscheckbox,BorderLayout.NORTH);
 		outputPanel.add(IncludeFunParamNamescheckbox,BorderLayout.NORTH);
 		outputPanel.add(GenerateNormalAddressHooksForFunctionBeginningscheckbox,BorderLayout.NORTH);
+		/*
+		 * The abi is only worth offering where more than one of them exists and frida can be told which. Everywhere else the option
+		 * would be a control that changes nothing, so the program is asked first and the checkbox is simply not put on the dialog.
+		 * Careful: an option that is never put on a panel is also never selected, and okCallback() only ever switches an option on
+		 * from a component that is selected, so on every other architecture this stays off without anything else having to say so.
+		 */
+		if (FridaAbiHandler.can_an_abi_be_chosen_for_this_target(this.current_program).booleanValue())
+		{
+			outputPanel.add(UseTheCallingConventionForTheAbicheckbox,BorderLayout.NORTH);
+		}
 		outputPanel.add(outputSubPanel4,BorderLayout.NORTH);
 		
 		
@@ -586,11 +613,35 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 	public void fetch_advanced_hook_options(Address address, Program prog) {
 		fetch_advanced_hook_options(address, prog, tool.getActiveWindow());
 	}
-	
-	
+
+
+	/*
+	 * Many of the options of this dialog carry a long explanation in their tooltip, and swing hides a tooltip after 4 seconds by default,
+	 * which is not enough time to read them. The change is scoped to while this dialog is open: ToolTipManager is a process wide
+	 * singleton, so whatever the tool had is read first and put back afterwards, rather than left altered for the rest of ghidra.
+	 * tool.showDialog() blocks here because this dialog is modal (see the "true" given to the constructor of the parent class), so the
+	 * finally really does run when the dialog closes, whether that is through OK, through Cancel or through the window being closed.
+	 */
+	public static final int milliseconds_before_a_tooltip_of_this_dialog_is_hidden=10000;
+
 	public void fetch_advanced_hook_options(Address address, Program targetProgram, Component centeredOverComponent) {
 		initDialogForAdvancedHookOptions(targetProgram, address);
-		tool.showDialog(this, centeredOverComponent);
+
+		ToolTipManager tooltip_manager=ToolTipManager.sharedInstance();
+		int previous_dismiss_delay=tooltip_manager.getDismissDelay();
+		try
+		{
+			/*Only ever lengthen it: if the tool, or the user through it, has already asked for even longer tooltips, that wish is the one that stands*/
+			if (previous_dismiss_delay<milliseconds_before_a_tooltip_of_this_dialog_is_hidden)
+			{
+				tooltip_manager.setDismissDelay(milliseconds_before_a_tooltip_of_this_dialog_is_hidden);
+			}
+			tool.showDialog(this, centeredOverComponent);
+		}
+		finally
+		{
+			tooltip_manager.setDismissDelay(previous_dismiss_delay);
+		}
 	}
 	
 		
@@ -633,6 +684,7 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		DoNotIncludeFunParamscheckbox.setEnabled(true);
 		IncludeFunParamNamescheckbox.setEnabled(true);
 		GenerateNormalAddressHooksForFunctionBeginningscheckbox.setEnabled(true);
+		UseTheCallingConventionForTheAbicheckbox.setEnabled(true);	//harmless on an architecture where it was never put on the dialog, as it cannot be selected there
 		IncludeCustomTextcheckbox.setEnabled(true);
 		FunctionRegexCheckBox.setEnabled(true);
 		FunctionMangledNameRegexCheckBox.setEnabled(true);
@@ -694,6 +746,9 @@ public class AdvancedHookOptionsDialog extends DialogComponentProvider {
 		}
 		if (OutputReasonForHookGenCheckbox.isEnabled() && OutputReasonForHookGenCheckbox.isSelected()) {
 			this.isOutputReasonForHookGenCheckboxchecked=true;
+		}
+		if (UseTheCallingConventionForTheAbicheckbox.isEnabled() && UseTheCallingConventionForTheAbicheckbox.isSelected()) {
+			this.isUseTheCallingConventionForTheAbicheckboxchecked=true;
 		}
 		
 		

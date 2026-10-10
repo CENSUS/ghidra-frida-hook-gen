@@ -758,7 +758,8 @@ public class HookGeneratorUtils {
 		//void is not ZeroLength, but getLength returns 0
 		if (current_function.getReturnType().isZeroLength() || (!current_function.getReturnType().toString().equals("void") && size_of_returntype!=1 && size_of_returntype!=2 && size_of_returntype!=4 && size_of_returntype!=8)  )
 		{
-			hook_str=hook_str.concat("        //Current function has an unaccepted return type:"+current_function.getReturnType().toString()+"\n");
+			/*The name of the type comes from the database, which took it from the analysed file, so it cannot be written into a comment as it is*/
+			hook_str=hook_str.concat("        //Current function has an unaccepted return type:"+return_text_safe_for_a_javascript_comment(current_function.getReturnType().toString())+"\n");
 			return hook_str;
 		}
 		
@@ -1084,13 +1085,7 @@ public class HookGeneratorUtils {
 		}
 	}
 	
-	/*
-	 * Escapes a string so that it can be placed inside a javascript string literal that is delimited by double quotes.
-	 * Careful: the reasons of hooking end up inside a console.log("...") of the generated script, and some of them contain
-	 * text that the user has typed, such as the regular expressions of the function names. A regular expression normally
-	 * contains backslashes and it may contain double quotes, either of which would otherwise cut the string literal short
-	 * and break the whole script.
-	 */
+
 	/*
 	 * Makes a piece of text safe to put inside a string literal of the generated javascript, whichever of the two kinds of
 	 * quote the literal is written with.
@@ -1116,8 +1111,56 @@ public class HookGeneratorUtils {
 			else if (current_char=='\n') { retval.append("\\n"); }
 			else if (current_char=='\r') { retval.append("\\r"); }
 			else if (current_char=='\t') { retval.append("\\t"); }
+			/*
+			 * Careful: the line separator and the paragraph separator end a line of javascript exactly as a line feed does, and they
+			 * are not control characters, so the test below for those does not reach them. A string literal of a modern runtime does
+			 * accept them as they are, but writing them out costs nothing and keeps this function safe to reuse.
+			 */
+			else if (current_char==0x2028 || current_char==0x2029) { retval.append(String.format("\\u%04x",(int)current_char)); }
 			else if (current_char<0x20 || current_char==0x7f) { retval.append(String.format("\\u%04x",(int)current_char)); }
 			else { retval.append(current_char); }
+		}
+		return retval.toString();
+	}
+
+	/*
+	 * Makes a piece of text safe to put inside a comment of the generated javascript.
+	 *
+	 * Careful: javascript ends a line at four characters and not at two. A line feed and a carriage return do it, and so do the
+	 * line separator and the paragraph separator, which are not control characters and survive a test that only looks for those.
+	 * Any one of them inside a comment that begins with // ends that comment where it sits and leaves the rest of the sentence
+	 * behind as code, which is how a name inside an analysed binary becomes a statement of a generated script.
+	 *
+	 * All four become spaces. The end of a block comment is broken apart as well, so that this can be trusted for a comment
+	 * written the other way too. The text of a comment is only ever read by a person, so a space in the place of something that
+	 * could not be printed anyway costs nothing.
+	 *
+	 * This is the counterpart of return_string_escaped_for_a_javascript_string_literal(). Text that goes into a literal needs that
+	 * one, text that goes into a comment needs this one, and nothing from a database may be written into either without passing
+	 * through whichever of the two fits where it lands.
+	 */
+	public static String return_text_safe_for_a_javascript_comment(String in_str)
+	{
+		if (in_str==null)
+		{
+			return "";
+		}
+		StringBuffer retval=new StringBuffer(in_str.length()+16);
+		for (int i=0;i<in_str.length();i++)
+		{
+			char current_char=in_str.charAt(i);
+			if (current_char=='\n' || current_char=='\r' || current_char==0x2028 || current_char==0x2029)
+			{
+				retval.append(' ');
+			}
+			else if (current_char=='*' && i+1<in_str.length() && in_str.charAt(i+1)=='/')
+			{
+				retval.append("* ");	//the end of a block comment, taken apart so that it cannot close one
+			}
+			else
+			{
+				retval.append(current_char);
+			}
 		}
 		return retval.toString();
 	}

@@ -1012,9 +1012,54 @@ public class HookGenerator {
 	}
 	
 
+	/*
+	 * Whether the user asked for the calling convention of each function to be used. It is asked in one place so that the abi of a
+	 * replacement, the place each argument of an attach hook is read from and the comment that explains either of them can never
+	 * disagree about what was asked for.
+	 */
+	protected Boolean the_user_asked_for_the_calling_convention_to_be_used()
+	{
+		return Boolean.valueOf(this.isAdvanced.booleanValue() && this.advancedhookoptionsdialog!=null
+				&& this.advancedhookoptionsdialog.isUseTheCallingConventionForTheAbicheckboxchecked.booleanValue());
+	}
+
 	protected String generate_interceptor_attach_hook(Address addr,Function current_function,String function_name_with_current_addr,int parameter_count)
 	{
 		String hook_str="";
+
+		/*
+		 * Where every parameter is read from, and whether this hook is going to read any of them at all. Both are worked out before
+		 * a single line is written, because the comment that opens the hook says which of the two things below happened.
+		 *
+		 * With the option off every entry is args[<position of the parameter>], which is what this plugin has always written, so
+		 * nothing below changes for a user who did not ask for any of this.
+		 */
+		String[] javascript_that_reads_each_parameter=FridaAbiHandler.return_the_javascript_that_reads_each_parameter(
+				current_function,parameter_count,the_user_asked_for_the_calling_convention_to_be_used(),this.current_program);
+		boolean the_names_of_the_parameters_conflict=false;
+		boolean include_names_of_arguments=false;
+		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked && parameter_count>=1)
+		{
+			the_names_of_the_parameters_conflict=this.utils.do_sanitized_function_argument_names_result_in_name_conflicts(current_function);
+			include_names_of_arguments=!the_names_of_the_parameters_conflict;
+		}
+		/*The two loops further down are the only places that read a parameter, and this is the question of whether either of them runs*/
+		boolean the_hook_reads_the_parameters=this.include_onEnter_in_function_hooks && parameter_count>=1
+				&& (include_names_of_arguments || this.utils.user_options_allow_printing_of_params());
+
+		/*
+		 * Careful: Interceptor.attach() takes no abi, so unlike the replacement below this hook cannot be told the calling
+		 * convention of the function. What can be done instead is to read each argument from the place the database gives it, and
+		 * where even that cannot be done the hook says so rather than printing values that are not the arguments at all. Which of
+		 * the two happened, and whether either is worth a word, is decided in FridaAbiHandler and not here.
+		 */
+		String comment_about_the_arguments=FridaAbiHandler.return_the_comment_about_the_arguments_of_an_attach_hook(
+				current_function,javascript_that_reads_each_parameter,Boolean.valueOf(the_hook_reads_the_parameters),
+				the_user_asked_for_the_calling_convention_to_be_used(),this.current_program);
+		if (!comment_about_the_arguments.equals(""))
+		{
+			hook_str=hook_str.concat("        "+comment_about_the_arguments+"\n");
+		}
 
 		hook_str=hook_str.concat("        "+this.utils.generate_try_catch_text_before_interceptor_hook()+this.utils.populate_data_structure_that_holds_Interceptor_attach_objects("dynamic_address_of_"+function_name_with_current_addr)+"Interceptor.attach(dynamic_address_of_"+function_name_with_current_addr+", {\n");
 		if (this.include_onEnter_in_function_hooks)
@@ -1022,42 +1067,41 @@ public class HookGenerator {
 			hook_str=hook_str.concat("                    onEnter: function(args) {\n")
 							 .concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Entered "+function_name_with_current_addr+"\");\n");
 			
-			boolean include_names_of_arguments=false;
-			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked)
+			if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked && parameter_count>=1)
 			{
-				if (parameter_count>=1)
+				if (the_names_of_the_parameters_conflict)
 				{
-					if (this.utils.do_sanitized_function_argument_names_result_in_name_conflicts(current_function))
+					hook_str+="                        // Conflicting sanitized names of function parameters, as such arguments will not be named\n";
+				}
+				else
+				{
+					//In this case, the names of the arguments must be put inside the function and variables should be declared
+					for (int i=0;i<parameter_count;i++)
 					{
-						include_names_of_arguments=false;
-						hook_str+="                        // Conflicting sanitized names of function parameters, as such arguments will not be named\n";
-					}
-					else
-					{
-						include_names_of_arguments=true;
-						//In this case, the names of the arguments must be put inside the function and variables should be declared
-						for (int i=0;i<parameter_count;i++)
-						{
-							hook_str+="                        this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"=args["+i+"];\n";
-						}
+						hook_str+="                        this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+"="+javascript_that_reads_each_parameter[i]+";\n";
 					}
 				}
 			}
-			
-				
+
+
 			/* Put the parameters in the hook code*/
 			if (parameter_count>=1 && this.utils.user_options_allow_printing_of_params()) {
 						   hook_str+="                        console.log("+this.utils.tid_and_indent_code()+"'";
 						   for (int i=0;i<parameter_count;i++)
 						   {
+							   /*
+								* The label carries the number of the argument, the place it was read from and, when they were asked for,
+								* its name. All three are worked out from the text that reads the value, so the label can never say that
+								* an argument came from somewhere the hook did not read it from.
+								*/
+							   String name_of_the_parameter_to_show="";
 							   if (include_names_of_arguments)
 							   {
-								   hook_str+="args["+i+"](this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i)+")='+args["+i+"]";
+								   name_of_the_parameter_to_show="this.arg_"+this.utils.return_sanitized_name_of_parameter_for_function_at_position(current_function, i);
 							   }
-							   else
-							   {
-								   hook_str+="args["+i+"]='+args["+i+"]";
-							   }
+							   hook_str+=FridaAbiHandler.return_the_label_that_a_hook_prints_in_front_of_a_parameter(i,
+									   javascript_that_reads_each_parameter[i],name_of_the_parameter_to_show)
+									   +"='+"+javascript_that_reads_each_parameter[i];
 							   if (i<parameter_count-1) { hook_str+="+' , "; }
 							   else { hook_str+=");\n"; }
 						   }
@@ -1158,7 +1202,30 @@ public class HookGenerator {
 		{
 			str_for_return_type+=this.utils.get_frida_nativefun_str_for_parameter(current_function.getReturnType());
 		}
-		String nativefunction_str="dynamic_address_of_"+function_name_with_current_addr+","+str_for_return_type+","+str_for_types_of_params;
+		/*
+		 * The abi, worked out once and written into both of the places below.
+		 * Careful: the NativeFunction calls the original function and the NativeCallback receives the call in its place, so the
+		 * two of them have to agree. Handing one an abi and the other none would be worse than handing neither anything, because
+		 * the arguments would be read from one set of places and written to another.
+		 *
+		 * The string is empty for nearly every program, and that is the intended answer: it means that frida is left to use the
+		 * abi of the system, which is what this hook did before any of this existed.
+		 */
+		String str_for_abi=FridaAbiHandler.return_the_text_of_the_abi_for_a_replacement(current_function,
+				the_user_asked_for_the_calling_convention_to_be_used(),this.current_program);
+		/*
+		 * And the line that explains an abi that was asked for and not written. The replacement is installed all the same, with the
+		 * abi of the system. Careful: not every empty abi deserves a line, and which ones do is decided in FridaAbiHandler, which
+		 * answers with nothing for the ones that do not.
+		 */
+		String comment_about_the_abi=FridaAbiHandler.return_the_comment_about_the_abi_of_a_replacement(current_function,
+				the_user_asked_for_the_calling_convention_to_be_used(),this.current_program);
+		if (!comment_about_the_abi.equals(""))
+		{
+			hook_str=hook_str.concat("        "+comment_about_the_abi+"\n");
+		}
+
+		String nativefunction_str="dynamic_address_of_"+function_name_with_current_addr+","+str_for_return_type+","+str_for_types_of_params+str_for_abi;
 		
 		hook_str=hook_str.concat("        var NativeFunction_of_"+function_name_with_current_addr+"= new NativeFunction("+nativefunction_str+");\n");
 		
@@ -1255,7 +1322,7 @@ public class HookGenerator {
 		{
 			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Exited "+function_name_with_current_addr+"\");\n");
 		}
-		hook_str=hook_str.concat("        },"+str_for_return_type+","+str_for_types_of_params+")); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
+		hook_str=hook_str.concat("        },"+str_for_return_type+","+str_for_types_of_params+str_for_abi+")); "+this.utils.generate_try_catch_text_after_interceptor_hook(addr)+"\n\n");
 		
 		return hook_str;
 	}

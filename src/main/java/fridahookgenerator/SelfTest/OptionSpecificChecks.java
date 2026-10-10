@@ -245,7 +245,88 @@ public class OptionSpecificChecks {
 		check_the_options_of_the_ranges();
 		check_the_options_of_the_computed_calls();
 		check_the_options_of_the_regular_expressions();
+		check_the_option_that_tells_frida_the_calling_convention();
 	}
+
+	/*
+	 * The option that tells frida the calling convention of a function.
+	 *
+	 * What matters most here is the direction that has to keep working: with the option off the script has to look exactly as it
+	 * did before any of this was written, which means not one abi anywhere in it. The other direction cannot be demanded, because
+	 * an abi is only written for a function whose convention the database actually holds, and in a program where nothing has been
+	 * through the analysis that works the conventions out there is nothing to write for any function.
+	 */
+	protected void check_the_option_that_tells_frida_the_calling_convention()
+	{
+		String name_of_check="the option that tells frida the calling convention";
+		if (!this.options.isUseTheCallingConventionForTheAbicheckboxchecked.booleanValue())
+		{
+			/*
+			 * Careful with the shape of the needle. An abi is always written as the last argument of a call, so it arrives with a
+			 * comma in front of it, and asking for the comma as well is what keeps the word apart from the same word written for some
+			 * other reason. The plainer needle would be enough for vfp or mscdecl, which are words nothing else uses, but default is
+			 * an ordinary word: a program of that name would put 'default' into the first line of every script it generates.
+			 */
+			for (int i=0;i<the_abis_that_frida_accepts.length;i++)
+			{
+				expect_not_anywhere(name_of_check,",'"+the_abis_that_frida_accepts[i]+"'",
+						"The option was off, so no abi has to be written and the script has to be the one that was generated before this option existed");
+			}
+			expect_not_anywhere(name_of_check,"No abi is written for this replacement",
+					"The option was off, so nothing has to be said about an abi either");
+			expect_not_anywhere(name_of_check,"cannot be told a calling convention",
+					"The option was off, so nothing has to be said about the arguments of an attach hook either");
+			/*
+			 * And the part of the option that is not an abi at all: with it off, every argument is read from args[<its position>],
+			 * which is what this plugin has always written. An argument read out of a register anywhere in the script would mean
+			 * that switching the option off no longer gives back the script that was generated before the option existed.
+			 */
+			expect_not_anywhere(name_of_check,"'+this.context.",
+					"The option was off, so no argument may be read out of a register instead of out of the args[] array");
+			/*
+			 * Careful: the line that saves an argument, "this.arg_name=this.context.ecx;" , cannot be looked for here by the text
+			 * "=this.context." . The code that reports where a computed call is going writes exactly the same shape, as
+			 * "var calculated_target_address_for_initial_address_00401000=this.context.eax;" , and that line has nothing to do
+			 * with this option. Telling the two apart needs the name on the left of the equals sign, which is done per hook in
+			 * PerHookChecks.
+			 *
+			 * The comment that says where the arguments were read from needs no needle of its own either: it is written only for a
+			 * hook that really did read one of them out of a register, which the needle above already refuses.
+			 */
+			return;
+		}
+		/*
+		 * With the option on, an abi may be there or not, but a name that frida does not accept may never be, and neither may an
+		 * abi on a target that has only one. Those two are checked for every hook in PerHookChecks, where the form of each hook is
+		 * known, so what is left here is the one thing that is a property of the whole script.
+		 */
+		if (!can_an_abi_be_chosen_for_the_program().booleanValue())
+		{
+			for (int i=0;i<the_abis_that_frida_accepts.length;i++)
+			{
+				expect_not_anywhere(name_of_check,",'"+the_abis_that_frida_accepts[i]+"')",
+						"The option was on, but this target has one abi to offer, so asking for the convention has to change nothing");
+			}
+		}
+	}
+
+	/*Whether the program is one where more than one abi exists and frida can be told which. Written here rather than asked of the plugin*/
+	protected Boolean can_an_abi_be_chosen_for_the_program()
+	{
+		String identifier_of_the_language=this.current_program.getLanguage().getLanguageID().toString();
+		String identifier_of_the_compiler_spec=this.current_program.getCompilerSpec().getCompilerSpecID().getIdAsString();
+		return Boolean.valueOf(identifier_of_the_language.indexOf("x86:LE:32")>=0 && identifier_of_the_compiler_spec.equals("windows"));
+	}
+
+	/*
+	 * Every abi that frida accepts, written out here so that a name the plugin invents is caught instead of believed.
+	 *
+	 * Careful: default belongs in this list even though the plugin never writes it. It is a word frida accepts, so a version of the
+	 * plugin that started writing it would be writing an abi, and the check that says no abi may appear while the option is off has
+	 * to refuse that one as well. This list is the one place the words are written down, and Level0Checks reads it from here rather
+	 * than keeping a second copy that could come to disagree with it.
+	 */
+	protected static final String[] the_abis_that_frida_accepts={"default","sysv","stdcall","thiscall","fastcall","mscdecl","win64","unix64","vfp"};
 
 	/*
 	 * The options that pick the functions to hook by matching their name. The database can work out which functions match,
@@ -883,6 +964,15 @@ public class OptionSpecificChecks {
 		if (this.options.isDoNotIncludeFunParamscheckboxchecked.booleanValue())
 		{
 			expect_not_anywhere(name_of_check,"args[0]=","The option that refuses to print the parameters was on, so no parameter has to be printed");
+			/*An argument that the option about the calling convention reads out of a register is printed without any args[] in it at all*/
+			expect_not_anywhere(name_of_check,"'+this.context.","The option that refuses to print the parameters was on, so no parameter has to be printed, wherever it was read from");
+			/*
+			 * And one that was not read from its own position is printed under its own number, which carries no index of args[] at
+			 * all. Careful: the bare text arg_0 is written by a replacement that declares the names of its parameters too, so what is
+			 * looked for is the number followed by what only a printed message puts after it.
+			 */
+			expect_not_anywhere(name_of_check,"arg_0='+","The option that refuses to print the parameters was on, so no parameter has to be printed under its own number either");
+			expect_not_anywhere(name_of_check,"arg_0(","The option that refuses to print the parameters was on, so no parameter has to be printed under its number with a register or a name beside it");
 		}
 
 		/*

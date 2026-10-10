@@ -33,10 +33,13 @@ import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 
 import fridahookgenerator.AdvancedHookOptionsDialog;
+import fridahookgenerator.FridaAbiHandler;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Listing;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.VariableStorage;
 
 /*
  * Looks at every hook of the generated script on its own.
@@ -61,6 +64,9 @@ public class PerHookChecks {
 	protected JavascriptTextAnalyzer analyzer;
 	protected int how_many_hooks_to_examine;
 	protected String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+
+	/*Every abi that frida accepts. Written out here on purpose, so that a name the plugin invents is caught instead of believed*/
+	protected static final String[] the_abis_that_frida_accepts={"default","sysv","stdcall","thiscall","fastcall","mscdecl","win64","unix64","vfp"};
 
 	public PerHookChecks(Program current_program,SelfTestReport report,AdvancedHookOptionsDialog options,JavascriptTextAnalyzer analyzer,int how_many_hooks_to_examine)
 	{
@@ -123,6 +129,7 @@ public class PerHookChecks {
 			check_the_backtrace_of_the_hook(hook);
 			check_the_options_that_write_inside_the_hook(hook);
 			check_the_two_variables_that_open_the_hook(hook);
+			check_where_the_arguments_of_the_hook_are_read_from(hook);
 			if (hook.form.equals("function hook"))
 			{
 				check_a_function_hook(hook);
@@ -492,6 +499,171 @@ public class PerHookChecks {
 	 * address hooks and the code that writes the backtrace treats them as such. The option that turns a function beginning into
 	 * an ordinary address is meant to take everything that being a function brings with it, the backtrace included.
 	 */
+	/*
+	 * Where the arguments of one hook were read from.
+	 *
+	 * The args[] of an onEnter are the stack of the process and nothing else, so a calling convention that passes the first
+	 * arguments in registers leaves them out of args[] altogether. The option about the calling convention reads those from
+	 * this.context instead, and the two rules below are the ones that must hold wherever it did so.
+	 *
+	 * Careful: the text of the hook, not its code. The place a value is read from is written inside the string that the hook
+	 * prints, and the code only text has the contents of the strings taken out of it.
+	 */
+	protected void check_where_the_arguments_of_the_hook_are_read_from(OneHook hook)
+	{
+		String name_of_check="where the arguments of one hook are read from";
+		boolean an_argument_is_read_from_a_register=false;
+
+		/*
+		 * The first shape: an argument that is printed. The hook writes "ecx='+this.context.ecx" , and nothing else that this
+		 * plugin generates ever puts a this.context straight after a concatenation of a string.
+		 */
+		int position=hook.text.indexOf("'+this.context.");
+		while (position>=0)
+		{
+			an_argument_is_read_from_a_register=true;
+			check_one_register_that_an_argument_was_read_from(hook,name_of_check,position+"'+this.context.".length());
+			position=hook.text.indexOf("'+this.context.",position+1);
+		}
+
+		/*
+		 * The second shape: an argument that is saved so that the onLeave can still reach it, written as
+		 * "this.arg_name=this.context.ecx;" .
+		 *
+		 * Careful: the text "=this.context." on its own is not this shape. The code that reports where a computed call is going
+		 * writes the very same shape, as "var calculated_target_address_for_initial_address_00401000=this.context.eax;" , and that
+		 * line is not an argument of anything. What tells the two apart is the name on the left of the equals sign, so the search
+		 * starts from that name and not from the value.
+		 */
+		position=hook.text.indexOf("this.arg_");
+		while (position>=0)
+		{
+			int position_of_the_equals_sign=position;
+			while (position_of_the_equals_sign<hook.text.length()
+					&& hook.text.charAt(position_of_the_equals_sign)!='='
+					&& hook.text.charAt(position_of_the_equals_sign)!='\n')
+			{
+				position_of_the_equals_sign++;
+			}
+			if (position_of_the_equals_sign<hook.text.length() && hook.text.charAt(position_of_the_equals_sign)=='='
+					&& hook.text.startsWith("this.context.",position_of_the_equals_sign+1))
+			{
+				an_argument_is_read_from_a_register=true;
+				check_one_register_that_an_argument_was_read_from(hook,name_of_check,
+						position_of_the_equals_sign+1+"this.context.".length());
+			}
+			position=hook.text.indexOf("this.arg_",position+1);
+		}
+
+		check_that_the_comment_about_the_arguments_says_what_the_hook_did(hook,an_argument_is_read_from_a_register);
+	}
+
+	/*
+	 * The hook carries one of two comments about its arguments, and the wrong one is worse than none: the note says the work was
+	 * done and the warning sends the reader off to do it by hand. Both of them sit between the two variables that open the hook and
+	 * the Interceptor.attach() that follows, so both are inside the text of the hook they belong to.
+	 *
+	 * The three things asked here are the three ways the pair can be wrong: both written, the note written over a hook that read no
+	 * register, and a register read under a hook that was told nothing about it.
+	 */
+	protected void check_that_the_comment_about_the_arguments_says_what_the_hook_did(OneHook hook,boolean an_argument_is_read_from_a_register)
+	{
+		String name_of_check="the comment about the arguments of one hook";
+		/*
+		 * The words that only the note has, and the words that only the warning has.
+		 *
+		 * Careful: whether an argument was really read out of a register is not asked here with a needle of its own. The text
+		 * "=this.context." is written by the code that reports where a computed call is going as well, and that line is not an
+		 * argument of anything, so the answer is taken from the scan above, which tells the two apart by the name on the left of
+		 * the equals sign.
+		 */
+		boolean the_note_is_there=hook.text.indexOf("They are read below from")>=0;
+		boolean the_warning_is_there=hook.text.indexOf("Read it with this.context")>=0
+				|| hook.text.indexOf("Read them with this.context")>=0
+				|| hook.text.indexOf("Read them through this.context")>=0;
+
+		this.report.count_one_check_that_was_run();
+		if (the_note_is_there && the_warning_is_there)
+		{
+			this.report.add_error(name_of_check,"a hook that carries both comments about its arguments",
+					"A hook carries the comment that says its arguments were read from where the convention puts them and the one that tells the reader to go and read them by hand, and the two say opposite things",
+					"the hook of '"+hook.identifier+"' carries both",hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+		}
+
+		this.report.count_one_check_that_was_run();
+		if (the_note_is_there && !an_argument_is_read_from_a_register)
+		{
+			this.report.add_error(name_of_check,"a note about registers over a hook that reads none",
+					"A hook says that the arguments a register convention keeps out of args[] are read from this.context, and then reads none of them from there",
+					"the hook of '"+hook.identifier+"' says so and reads no register",hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+		}
+
+		/*
+		 * Careful: this one is a warning and not an error, because the values such a hook prints are still the right ones. The label
+		 * in front of each of them is worked out from the text that reads it, so an argument out of ECX is printed under the name
+		 * ecx whether the comment is there or not. What is missing is the sentence that tells the reader why one argument of this
+		 * function is named after a register while the others are named after args[].
+		 */
+		this.report.count_one_check_that_was_run();
+		if (an_argument_is_read_from_a_register && !the_note_is_there)
+		{
+			this.report.add_warning(name_of_check,"a register read that the hook does not explain",
+					"A hook reads an argument out of a register instead of out of args[], and carries no comment saying that it did",
+					"the hook of '"+hook.identifier+"' reads a register and explains nothing",hook.line_where_it_starts);
+		}
+	}
+
+	/*One register that an argument of the hook was read out of, named in the text of the hook from the given position onwards*/
+	protected void check_one_register_that_an_argument_was_read_from(OneHook hook,String name_of_check,int position_of_the_name)
+	{
+		int end_of_the_name=position_of_the_name;
+		while (end_of_the_name<hook.text.length()
+				&& (Character.isLetterOrDigit(hook.text.charAt(end_of_the_name)) || hook.text.charAt(end_of_the_name)=='_'))
+		{
+			end_of_the_name++;
+		}
+		String name_of_the_register=hook.text.substring(position_of_the_name,end_of_the_name);
+
+		/*
+		 * The option was off, so the script has to be the one that was written before any of this existed. The whole script is asked
+		 * the same question in OptionSpecificChecks, and it is asked again here because a hook names the place it went wrong in.
+		 */
+		this.report.count_one_check_that_was_run();
+		if (!this.options.isUseTheCallingConventionForTheAbicheckboxchecked.booleanValue())
+		{
+			this.report.add_error(name_of_check,"an argument read out of a register although it was not asked for",
+					"An argument of a hook was read out of a register while the option that asks for that was off, so the hook is not the one the plugin wrote before that option existed",
+					"the hook of '"+hook.identifier+"' reads this.context."+name_of_the_register,hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+		}
+
+		/*
+		 * Only 32 bit x86 has a calling convention that keeps an argument out of args[] altogether, and the names below are the only
+		 * ones the context of frida carries there. Anything else would mean that the storage of the database was copied into the
+		 * script without being understood.
+		 */
+		this.report.count_one_check_that_was_run();
+		if (this.current_program.getLanguage().getLanguageID().toString().indexOf("x86:LE:32")<0)
+		{
+			this.report.add_error(name_of_check,"an argument read out of a register on a target that has no such convention",
+					"An argument of a hook was read out of a register, which is only ever right on 32 bit x86, where a calling convention can keep an argument out of args[]",
+					"the language is "+this.current_program.getLanguage().getLanguageID().toString()+" and the hook of '"
+							+hook.identifier+"' reads this.context."+name_of_the_register,hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+			return;
+		}
+		this.report.count_one_check_that_was_run();
+		if (FridaAbiHandler.return_the_javascript_that_reads_a_register_of_a_32_bit_x86_process(name_of_the_register).equals(""))
+		{
+			this.report.add_error(name_of_check,"an argument read out of a register that frida does not have",
+					"An argument of a hook was read out of a register that the context of frida does not carry for a 32 bit x86 process, so that read gives undefined at run time",
+					"the hook of '"+hook.identifier+"' reads this.context."+name_of_the_register,hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+		}
+	}
+
 	protected void check_the_backtrace_of_the_hook(OneHook hook)
 	{
 		String name_of_check="the backtrace of one hook";
@@ -704,9 +876,25 @@ public class PerHookChecks {
 			 * saves the argument, which has the closing bracket followed by a semicolon.
 			 *
 			 * And the text of the hook, not its code, because the message is a string literal.
+			 *
+			 * Careful: looking for args[0] alone is not enough any more. With the option that reads the arguments from where the
+			 * calling convention puts them, the first argument of a thiscall is printed as "ecx='+this.context.ecx" and carries no
+			 * args[0] at all, so a hook that prints its parameters while the printing was switched off would slip through. The
+			 * needle for that form is the concatenation, which no comment and no line that merely saves an argument ever carries.
 			 */
 			expect_not_in_the_hook(name_of_check,hook,"args[0]=","The printing of the parameters was switched off, so no message may carry them");
 			expect_not_in_the_hook(name_of_check,hook,"args[0](","The printing of the parameters was switched off, so no message may carry them together with their names");
+			expect_not_in_the_hook(name_of_check,hook,"'+this.context.","The printing of the parameters was switched off, so no message may carry one that was read out of a register");
+			/*
+			 * And the label of an argument that was not read from its own position, which carries the number of the argument instead
+			 * of an index of args[] and would therefore slip past both of the needles above.
+			 *
+			 * Careful with the shape of these two. The bare text arg_0 is also written by a replacement that was asked for the names
+			 * of its parameters, as "var arg_<name>=arg_0;" , so what is looked for is the number followed by what only a printed
+			 * message puts after it: the concatenation itself, or the name in brackets that precedes it.
+			 */
+			expect_not_in_the_hook(name_of_check,hook,"arg_0='+","The printing of the parameters was switched off, so no message may carry the first one under its own number either");
+			expect_not_in_the_hook(name_of_check,hook,"arg_0(","The printing of the parameters was switched off, so no message may carry the first one under its number with a register or a name beside it");
 		}
 
 		/*
@@ -822,6 +1010,7 @@ public class PerHookChecks {
 		if (this.options.isDoNotIncludeFunParamscheckboxchecked.booleanValue())
 		{
 			expect_not_in_the_hook(name_of_check,hook,"args[0]=","The option that refuses to print the parameters was on");
+			expect_not_in_the_hook(name_of_check,hook,"'+this.context.","The option that refuses to print the parameters was on, and an argument read out of a register is still an argument");
 		}
 	}
 
@@ -962,6 +1151,122 @@ public class PerHookChecks {
 					"The types of the original function and the types of the replacement are not the same, which is a mismatch of the calling convention",
 					"the original says '"+types_of_the_native_function+"' and the replacement says '"+types_of_the_callback+"'",hook.line_where_it_starts);
 		}
+
+		/*
+		 * The abi, on the few hooks that carry one.
+		 *
+		 * Careful: from the text of the hook and not from its code, because an abi is written as a string literal and the code
+		 * with the strings blanked out no longer carries the word.
+		 *
+		 * Most hooks carry none at all, which is right: frida accepts nine abis and only the ones of 32 bit x86 are ever a real
+		 * choice, so everywhere else the plugin says nothing and frida uses the abi of the system.
+		 */
+		String abi_of_the_native_function=return_the_abi_that_follows(hook.text,"new NativeFunction(dynamic_address_of_"+hook.identifier);
+		String abi_of_the_callback=return_the_abi_that_follows(hook.text,"        },");
+		this.report.count_one_check_that_was_run();
+		if (!abi_of_the_native_function.equals(abi_of_the_callback))
+		{
+			this.report.add_error(name_of_check,"the two abis disagree",
+					"The original function and the replacement are given different abis, so the arguments would be read from one set of places and written to another",
+					"the original says '"+abi_of_the_native_function+"' and the replacement says '"+abi_of_the_callback+"'",hook.line_where_it_starts)
+				.with_the_context("the hook of "+hook.identifier,hook.text);
+		}
+
+		if (!abi_of_the_native_function.equals(""))
+		{
+			String name_of_the_abi=abi_of_the_native_function.replace("'","").replace("\"","").trim();
+			Boolean frida_knows_this_abi=false;
+			for (int i=0;i<the_abis_that_frida_accepts.length;i++)
+			{
+				if (the_abis_that_frida_accepts[i].equals(name_of_the_abi))
+				{
+					frida_knows_this_abi=true;
+				}
+			}
+			this.report.count_one_check_that_was_run();
+			if (!frida_knows_this_abi.booleanValue())
+			{
+				this.report.add_error(name_of_check,"an abi that frida does not accept",
+						"The hook names an abi that is not one of the nine that frida accepts, so the script throws as soon as it is loaded",
+						"the hook of '"+hook.identifier+"' says '"+name_of_the_abi+"'",hook.line_where_it_starts)
+					.with_the_context("the hook of "+hook.identifier,hook.text);
+			}
+
+			/*
+			 * The thiscall abi of frida passes the first argument in ECX, so a replacement given that abi has to declare at least
+			 * one argument. One that declares none leaves whatever the function reads out of ECX unaccounted for: the original is
+			 * then called with no arguments at all and finds garbage in the register it expects the object in.
+			 *
+			 * Careful: it is tempting to demand that the first argument be a pointer, on the grounds that __thiscall is what a
+			 * compiler emits for a method and the argument in ECX is the object. That demand is wrong and it reported hooks that
+			 * were perfectly right. Ghidra gives a function the __thiscall model when it sees ECX used as an input, and it does not
+			 * have to know what the value in it is: a function whose parameters it typed as plain ints is still __thiscall, and
+			 * parameter 0 still maps to ECX. Nothing is misplaced, because the model maps the first parameter to that register
+			 * whatever its type is, and a 32 bit int and a pointer are passed the same way on x86 in any case.
+			 */
+			if (name_of_the_abi.equals("thiscall"))
+			{
+				String types_of_the_thiscall=return_the_types_that_follow(hook.text,"new NativeFunction(dynamic_address_of_"+hook.identifier);
+				this.report.count_one_check_that_was_run();
+				if (types_of_the_thiscall.replace(" ","").equals("[]"))
+				{
+					this.report.add_error(name_of_check,"a thiscall replacement that declares no arguments",
+							"A replacement was given the thiscall abi, which passes the first argument in ECX, and it declares no arguments at all, so the original is called without the one value that the convention puts in that register",
+							"the hook of '"+hook.identifier+"' declares "+types_of_the_thiscall,hook.line_where_it_starts)
+						.with_the_context("the hook of "+hook.identifier,hook.text);
+				}
+			}
+
+			/*
+			 * And it may only be there at all on 32 bit x86. On every other target frida has one abi to offer, so a name written
+			 * there was believed from the database rather than worked out, which is how a function reported as __stdcall on 64
+			 * bit Windows, where that name means the one convention of the platform, would get the stdcall of 32 bit Windows.
+			 */
+			this.report.count_one_check_that_was_run();
+			if (this.current_program.getLanguage().getLanguageID().toString().indexOf("x86:LE:32")<0)
+			{
+				this.report.add_error(name_of_check,"an abi on a target that has only one",
+						"The hook names an abi although the target has only one, so the name was taken from the calling convention of the database instead of being worked out",
+						"the language is "+this.current_program.getLanguage().getLanguageID().toString()+" and the hook of '"
+						+hook.identifier+"' says '"+name_of_the_abi+"'",hook.line_where_it_starts)
+					.with_the_context("the hook of "+hook.identifier,hook.text);
+			}
+		}
+	}
+
+	/*
+	 * What a call carries after its list of types and before its closing bracket, which is where an abi is written, or an empty
+	 * string when there is nothing there. Reads both the NativeFunction, whose list is followed by the abi and then by the end of
+	 * the call, and the NativeCallback, whose list is followed by the abi and then by two brackets.
+	 */
+	protected String return_the_abi_that_follows(String text,String needle)
+	{
+		int position=text.indexOf(needle);
+		if (position<0)
+		{
+			return "";
+		}
+		int position_of_the_bracket=text.indexOf("[",position);
+		if (position_of_the_bracket<0)
+		{
+			return "";
+		}
+		int position_of_the_closing_bracket=text.indexOf("]",position_of_the_bracket);
+		if (position_of_the_closing_bracket<0)
+		{
+			return "";
+		}
+		int position_of_the_closing_paren=text.indexOf(")",position_of_the_closing_bracket);
+		if (position_of_the_closing_paren<0)
+		{
+			return "";
+		}
+		String what_is_between=text.substring(position_of_the_closing_bracket+1,position_of_the_closing_paren).trim();
+		if (what_is_between.startsWith(","))
+		{
+			what_is_between=what_is_between.substring(1).trim();
+		}
+		return what_is_between;
 	}
 
 	/*Reads what follows a piece of text up to the end of that line, which is where the plugin writes the return type and the list of the types*/
@@ -1116,6 +1421,59 @@ public class PerHookChecks {
 	{
 		this.report.count_one_check_that_was_run();
 		int how_many_parameters_the_database_has=function.getParameterCount();
+		/*
+		 * The largest index of args[] that this hook is allowed to print. Where each argument is read from its own position, which
+		 * is what the plugin writes unless it is asked for otherwise, argument number i is args[i] and the last of them is the one
+		 * below the count.
+		 */
+		int largest_index_that_may_be_printed=how_many_parameters_the_database_has-1;
+		/*
+		 * With the option that reads the arguments from where the calling convention puts them, the index of an args[] is no longer
+		 * the position of the parameter. An argument passed in a register takes no index at all, and an argument of eight bytes on
+		 * the stack takes two of them, so a function of two parameters can quite correctly print args[2].
+		 *
+		 * The bound is therefore counted here out of the storage that the database gives each parameter. It is only ever allowed to
+		 * grow: when the plugin could not place the parameters it writes the positions it always wrote, and that bound still holds.
+		 *
+		 * Careful: only the form that attaches reads its arguments that way. A replacement receives them as the parameters of its own
+		 * callback and prints args[<position>] as a label beside each one, so raising the bound for a replacement would take the
+		 * teeth out of this check without any hook of that form ever needing it.
+		 */
+		if (hook.form.equals("function hook")
+				&& this.options.isUseTheCallingConventionForTheAbicheckboxchecked.booleanValue()
+				&& this.current_program.getLanguage().getLanguageID().toString().indexOf("x86:LE:32")>=0
+				&& this.current_program.getCompilerSpec().getCompilerSpecID().getIdAsString().equals("windows"))
+		{
+			int largest_index_that_the_storage_asks_for=-1;
+			for (int i=0;i<how_many_parameters_the_database_has;i++)
+			{
+				Parameter parameter_of_the_function=function.getParameter(i);
+				if (parameter_of_the_function==null || parameter_of_the_function.getVariableStorage()==null)
+				{
+					continue;
+				}
+				VariableStorage storage_of_the_parameter=parameter_of_the_function.getVariableStorage();
+				if (!storage_of_the_parameter.isStackStorage() || storage_of_the_parameter.getStackOffset()<4)
+				{
+					continue;
+				}
+				/*The return address sits at offset 0 and the first argument at 4, and a parameter longer than a slot occupies more than one*/
+				int index_of_its_first_slot=(storage_of_the_parameter.getStackOffset()-4)/4;
+				int how_many_slots_it_takes=(storage_of_the_parameter.size()+3)/4;
+				if (how_many_slots_it_takes<1)
+				{
+					how_many_slots_it_takes=1;
+				}
+				if (index_of_its_first_slot+how_many_slots_it_takes-1>largest_index_that_the_storage_asks_for)
+				{
+					largest_index_that_the_storage_asks_for=index_of_its_first_slot+how_many_slots_it_takes-1;
+				}
+			}
+			if (largest_index_that_the_storage_asks_for>largest_index_that_may_be_printed)
+			{
+				largest_index_that_may_be_printed=largest_index_that_the_storage_asks_for;
+			}
+		}
 		/*The largest index of an argument that the hook prints*/
 		int largest_index_that_is_printed=-1;
 		int position=hook.text.indexOf("args[");
@@ -1143,11 +1501,12 @@ public class PerHookChecks {
 			}
 			position=hook.text.indexOf("args[",position+1);
 		}
-		if (largest_index_that_is_printed>=0 && largest_index_that_is_printed>=how_many_parameters_the_database_has)
+		if (largest_index_that_is_printed>=0 && largest_index_that_is_printed>largest_index_that_may_be_printed)
 		{
 			this.report.add_error("one hook against the database","more arguments than the function has",
 					"A hook prints an argument that the function does not have",
-					"the hook of '"+hook.identifier+"' prints args["+largest_index_that_is_printed+"] and the database says the function has "+how_many_parameters_the_database_has+" parameters",
+					"the hook of '"+hook.identifier+"' prints args["+largest_index_that_is_printed+"] , the database says the function has "
+							+how_many_parameters_the_database_has+" parameters and the largest index they can reach is "+largest_index_that_may_be_printed,
 					hook.line_where_it_starts);
 		}
 	}

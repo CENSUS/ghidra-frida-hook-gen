@@ -104,8 +104,18 @@ public class ComputedCallHookGenerator {
 		String frida_code_for_the_target_address=this.parser_of_computed_calls.create_frida_code_for_call_arg(this.mnemonic_of_command ,this.arg_of_call, this.incoming_instruction);
 		if (frida_code_for_the_target_address==null || frida_code_for_the_target_address.equals(""))
 		{
-			//The argument could not be translated. Careful: an empty string must never be emitted as code, it would produce a syntax error in the generated script
-			return spaces+"//The destination of the computed \""+this.mnemonic_of_command+" "+this.arg_of_call+"\" at address "+this.incoming_address+" could not be translated into frida code\n";
+			/*
+			 * The argument could not be translated. Careful: an empty string must never be emitted as code, it would produce a syntax
+			 * error in the generated script.
+			 *
+			 * Careful as well: the argument of the instruction is written out here, and it is the one piece of this sentence that
+			 * comes from the analysed file. Ghidra renders an operand with the name of whatever symbol it refers to, and a name in a
+			 * symbol table may carry anything that is not a zero byte, a character that ends a line of javascript included. It is the
+			 * failure path that writes it out, so the operand that reaches this line is exactly the one somebody would have made hard
+			 * to translate on purpose. The mnemonic beside it needs nothing done to it: that one comes from the processor
+			 * specification of Ghidra and not from the file.
+			 */
+			return spaces+"//The destination of the computed \""+this.mnemonic_of_command+" "+HookGeneratorUtils.return_text_safe_for_a_javascript_comment(this.arg_of_call)+"\" at address "+this.incoming_address+" could not be translated into frida code\n";
 		}
 
 		retval+= spaces+"var calculated_target_address_for_initial_address_"+sanitized_addr+"="+frida_code_for_the_target_address+";\n";
