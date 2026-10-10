@@ -1316,15 +1316,27 @@ public class SelfTestRunner {
 	}
 
 	/*
-	 * Writes a generated script into a directory of its own under the temporary directory of the system, and returns the path
-	 * of the file. A generated script can be megabytes long, so a path is a great deal more useful in a report than the text.
+	 * The directory that the scripts of this run are written into. It is made once, the first time a script is written, and every
+	 * combination after that one writes into the same place.
+	 *
+	 */
+	protected File directory_for_the_scripts_of_this_run=null;
+
+	/*
+	 * Writes a generated script into the directory of this run, and returns the path of the file. A generated script can be
+	 * megabytes long, so a path is a great deal more useful in a report than the text.
 	 */
 	protected String write_the_script_out(String name_of_the_combination,String script)
 	{
 		FileOutputStream stream=null;
 		try {
-			File directory=new File(System.getProperty("java.io.tmpdir"),"fridahookgenerator_selftest");
-			directory.mkdirs();
+			if (this.directory_for_the_scripts_of_this_run==null)
+			{
+				this.directory_for_the_scripts_of_this_run=java.nio.file.Files.createTempDirectory("fridahookgenerator_selftest_").toFile();
+				this.report.add_info("the scripts of this run","where they are",
+						"The generated scripts of this run are written into "+this.directory_for_the_scripts_of_this_run.getAbsolutePath(),"");
+			}
+			File directory=this.directory_for_the_scripts_of_this_run;
 			String name_of_the_file=name_of_the_combination.replaceAll("[^0-9a-zA-Z_]","_");
 			if (name_of_the_file.length()>120)
 			{
