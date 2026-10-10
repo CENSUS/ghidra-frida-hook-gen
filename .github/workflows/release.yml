@@ -2,6 +2,7 @@ name: Build & Release
 
 on:
   # Manual run: always builds, whatever the state of the Releases page.
+  # Runs on a non-default branch build and upload an artifact but never publish.
   workflow_dispatch:
     inputs:
       ghidra_version:
@@ -17,8 +18,11 @@ on:
   schedule:
     - cron: "23 4 * * 1"
 
+# Read-only by default. Only the publish job gets write access (see below),
+# so nothing that runs third-party code (Ghidra, Gradle) ever holds a token
+# that can change the repository or its releases.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-release-${{ github.ref }}
@@ -32,14 +36,18 @@ jobs:
   # ====================================================================
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       skip:           ${{ steps.decide.outputs.skip }}
       version:        ${{ steps.decide.outputs.version }}
       ghidra_url:     ${{ steps.ghidra.outputs.url }}
       ghidra_asset:   ${{ steps.ghidra.outputs.asset }}
       ghidra_version: ${{ steps.ghidra.outputs.version }}
+      ghidra_sha256:  ${{ steps.ghidra.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Resolve Ghidra release
         id: ghidra
@@ -49,6 +57,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${REQUESTED:-}" ]; then
+            if ! [[ "$REQUESTED" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
+              echo "::error::ghidra_version must look like 11.4 or 11.4.2, got '$REQUESTED'"
+              exit 1
+            fi
             JSON=$(gh api "repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_${REQUESTED}_build")
           else
             JSON=$(gh api repos/NationalSecurityAgency/ghidra/releases/latest)
@@ -58,11 +70,40 @@ jobs:
                        | select(.name | test("^ghidra_.*_PUBLIC_[0-9]{8}\\.zip$"))
                        | .browser_download_url' <<<"$JSON" | head -n1)
           [ -n "$URL" ] || { echo "::error::No ghidra_*_PUBLIC_*.zip asset found"; exit 1; }
+          case "$URL" in
+            https://github.com/NationalSecurityAgency/ghidra/releases/download/*) ;;
+            *) echo "::error::Unexpected download URL: $URL"; exit 1 ;;
+          esac
 
           ASSET=$(basename "$URL")
-          echo "url=$URL"     >> "$GITHUB_OUTPUT"
-          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
-          echo "version=$(sed -E 's/^ghidra_([^_]+)_PUBLIC_.*/\1/' <<<"$ASSET")" >> "$GITHUB_OUTPUT"
+
+          # ---- Expected SHA-256 of the zip ------------------------------
+          # Two sources: the asset digest GitHub computes on upload (newer
+          # releases only) and the "SHA-256: ..." line Ghidra puts in its
+          # release notes. Use whichever exists; if both exist they must agree.
+          SHA_DIGEST=$(jq -r --arg n "$ASSET" \
+                         '.assets[] | select(.name == $n) | .digest // empty' <<<"$JSON")
+          SHA_DIGEST=${SHA_DIGEST#sha256:}
+          SHA_NOTES=$(jq -r '.body // ""' <<<"$JSON" | tr '\r\n' '  ' \
+                        | grep -ioE 'SHA-?256[^0-9a-fA-F]{0,20}[0-9a-fA-F]{64}' \
+                        | grep -oE '[0-9a-fA-F]{64}$' | head -n1 | tr 'A-F' 'a-f' || true)
+
+          if [ -n "$SHA_DIGEST" ] && [ -n "$SHA_NOTES" ] && [ "$SHA_DIGEST" != "$SHA_NOTES" ]; then
+            echo "::error::SHA-256 in release notes ($SHA_NOTES) differs from asset digest ($SHA_DIGEST)"
+            exit 1
+          fi
+          SHA256=${SHA_DIGEST:-$SHA_NOTES}
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::No SHA-256 published for $ASSET, refusing to build against an unverified download"
+            exit 1
+          fi
+
+          {
+            echo "url=$URL"
+            echo "asset=$ASSET"
+            echo "sha256=$SHA256"
+            echo "version=$(sed -E 's/^ghidra_([^_]+)_PUBLIC_.*/\1/' <<<"$ASSET")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Version from code date, and decide whether to build
         id: decide
@@ -73,6 +114,12 @@ jobs:
           EXT_NAME: frida_hook_generator
         run: |
           set -euo pipefail
+          # The override becomes a git tag and part of a file name, so keep it tame.
+          if [ -n "${OVERRIDE:-}" ] && ! [[ "$OVERRIDE" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+            echo "::error::plugin_version must look like 2026.08.13 or 2026.08.13.2, got '$OVERRIDE'"
+            exit 1
+          fi
+
           # Date of the commit being built - not the date the workflow ran.
           CODE_DATE=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y.%m.%d)
           gh api "repos/$GITHUB_REPOSITORY/releases" --paginate > /tmp/releases.json
@@ -101,9 +148,11 @@ jobs:
               tc = rel.get("target_commitish", "")
               if re.fullmatch(r"[0-9a-f]{40}", tc):
                   return tc
+              # The commits endpoint resolves a tag to its commit, also for
+              # annotated tags (git/ref/tags would return the tag object's SHA).
               p = subprocess.run(
-                  ["gh", "api", f"repos/{repo}/git/ref/tags/{rel['tag_name']}",
-                   "-q", ".object.sha"],
+                  ["gh", "api", f"repos/{repo}/commits/{rel['tag_name']}",
+                   "-q", ".sha"],
                   capture_output=True, text=True)
               return p.stdout.strip() if p.returncode == 0 else ""
 
@@ -152,29 +201,41 @@ jobs:
           PY
 
   # ====================================================================
-  # Build & publish
+  # Build. Runs Ghidra and Gradle (third-party code), so it only ever has
+  # a read-only token and hands its result to the publish job as an artifact.
   # ====================================================================
   build:
     needs: check
     if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      asset_name: ${{ steps.artifact.outputs.name }}
+      gradle:     ${{ steps.toolchain.outputs.gradle }}
+      java:       ${{ steps.toolchain.outputs.java }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # keep the token out of .git/config, away from the build
 
       - name: Cache Ghidra install
         id: ghidra-cache
         uses: actions/cache@v4
         with:
           path: ~/ghidra
-          key: ghidra-${{ needs.check.outputs.ghidra_asset }}
+          key: ghidra-${{ needs.check.outputs.ghidra_asset }}-${{ needs.check.outputs.ghidra_sha256 }}
 
-      - name: Download & extract Ghidra
+      - name: Download, verify & extract Ghidra
         if: steps.ghidra-cache.outputs.cache-hit != 'true'
+        env:
+          GHIDRA_URL: ${{ needs.check.outputs.ghidra_url }}
+          GHIDRA_SHA256: ${{ needs.check.outputs.ghidra_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p ~/ghidra
           curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 \
-               -o /tmp/ghidra.zip "${{ needs.check.outputs.ghidra_url }}"
+               -o /tmp/ghidra.zip "$GHIDRA_URL"
+          echo "$GHIDRA_SHA256  /tmp/ghidra.zip" | sha256sum -c -
           unzip -q /tmp/ghidra.zip -d ~/ghidra
           rm -f /tmp/ghidra.zip
 
@@ -275,43 +336,77 @@ jobs:
         id: artifact
         env:
           VERSION: ${{ needs.check.outputs.version }}
-          REPO_DIR_NAME: ghidra-frida-hook-gen
           EXT_NAME: frida_hook_generator
         run: |
           set -euo pipefail
-          BUILT=$(ls dist/*.zip | head -n1)
-          # Gradle names the zip after the checkout directory; restore the
-          # project's dist/ naming and append the date-derived version.
+          # Gradle names the zip after the checkout directory, which is the
+          # repository name (taken from the env so forks and renames still work).
+          REPO_DIR_NAME="${GITHUB_REPOSITORY#*/}"
+          shopt -s nullglob
+          ZIPS=(dist/*.zip)
+          [ "${#ZIPS[@]}" -eq 1 ] || { echo "::error::Expected exactly one zip in dist/, found ${#ZIPS[@]}"; exit 1; }
+          BUILT="${ZIPS[0]}"
+          # Restore the project's dist/ naming and append the date-derived version.
           BASE=$(basename "${BUILT%.zip}")
-          BASE="${BASE%_$REPO_DIR_NAME}"
+          BASE="${BASE%_"$REPO_DIR_NAME"}"
           FINAL="dist/${BASE}_${EXT_NAME}_${VERSION}.zip"
           mv "$BUILT" "$FINAL"
           echo "path=$FINAL" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$FINAL")" >> "$GITHUB_OUTPUT"
           echo "Artifact: \`$(basename "$FINAL")\`" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: frida_hook_generator-${{ needs.check.outputs.version }}-ghidra-${{ needs.check.outputs.ghidra_version }}
           path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
 
-      # ------------------------------------------------------------------
-      # Publish: one release per code date, holding a zip per Ghidra version
-      # ------------------------------------------------------------------
+  # ====================================================================
+  # Publish: one release per code date, holding a zip per Ghidra version.
+  # The only job with write access. It runs no third-party code: it takes
+  # the zip the build produced and hands it to `gh release`.
+  # Only from the default branch (scheduled runs always use it; manual runs
+  # on other branches stop after the build and keep the artifact).
+  # ====================================================================
+  publish:
+    needs: [check, build]
+    if: >-
+      github.event_name == 'schedule' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frida_hook_generator-${{ needs.check.outputs.version }}-ghidra-${{ needs.check.outputs.ghidra_version }}
+          path: dist
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET: ${{ steps.artifact.outputs.path }}
+          GH_REPO: ${{ github.repository }}   # no checkout in this job, so tell gh which repo
+          ASSET: dist/${{ needs.build.outputs.asset_name }}
           VERSION: ${{ needs.check.outputs.version }}
           GHIDRA_VERSION: ${{ needs.check.outputs.ghidra_version }}
-          GRADLE_VERSION: ${{ steps.toolchain.outputs.gradle }}
-          JAVA_VERSION: ${{ steps.toolchain.outputs.java }}
+          GRADLE_VERSION: ${{ needs.build.outputs.gradle }}
+          JAVA_VERSION: ${{ needs.build.outputs.java }}
         run: |
           set -euo pipefail
+          [ -f "$ASSET" ] || { echo "::error::Artifact $ASSET not found"; ls -la dist; exit 1; }
           TAG="v$VERSION"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Same source, newer Ghidra: add that build to the existing release
-            # rather than inventing a new version.
+            # rather than inventing a new version. Refuse if the release was made
+            # from different source (e.g. a plugin_version override that collides),
+            # so one release never mixes builds of two commits.
+            REL_SHA=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
+            if [ "$REL_SHA" != "$GITHUB_SHA" ]; then
+              echo "::error::Release $TAG was built from $REL_SHA, this run is $GITHUB_SHA. Use a different plugin_version."
+              exit 1
+            fi
             echo "Adding $(basename "$ASSET") to existing release $TAG"
             gh release upload "$TAG" "$ASSET" --clobber
             exit 0
