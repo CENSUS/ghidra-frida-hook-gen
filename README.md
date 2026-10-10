@@ -14,7 +14,7 @@ It should be noted that the right-click should be done when hovering over the in
 
 #### Installation:
 
-- Take the latest ghidra\_\<version\>\_PUBLIC\_\<date\>_frida_hook_generator.zip file which is inside the folder dist/ . Alternatively, grab the latest `gradle` version from [here](https://gradle.org/releases/), the latest `Ghidra` version from [here](https://github.com/NationalSecurityAgency/ghidra/releases), cd into the root directory of the project and run
+- Take the latest version from the Releases. Alternatively, grab the latest `gradle` version from [here](https://gradle.org/releases/), the latest `Ghidra` version from [here](https://github.com/NationalSecurityAgency/ghidra/releases), cd into the root directory of the project and run
 ```
 /path/to/gradle -PGHIDRA_INSTALL_DIR=/path/to/ghidra
 ```
