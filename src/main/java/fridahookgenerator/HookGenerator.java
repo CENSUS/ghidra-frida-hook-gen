@@ -1109,7 +1109,7 @@ public class HookGenerator {
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
 				//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-				hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+				hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: "+HookGeneratorUtils.prefix_of_placeholder_for_reasons_for_hooking+addr+"\")\n");
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{
@@ -1243,9 +1243,9 @@ public class HookGenerator {
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 		{
 			//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+			hook_str=hook_str.concat("                        console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: "+HookGeneratorUtils.prefix_of_placeholder_for_reasons_for_hooking+addr+"\")\n");
 		}
-		
+
 		boolean include_names_of_arguments=false;
 		if (this.isAdvanced && this.advancedhookoptionsdialog.isIncludeFunParamNamescheckboxchecked)
 		{
@@ -1504,7 +1504,7 @@ public class HookGenerator {
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isOutputReasonForHookGenCheckboxchecked)
 			{
 				//put the placeholder for the reasons of hooking. This will be replaced when backpatching
-				hook_str=hook_str.concat("            console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+addr+"\")\n");
+				hook_str=hook_str.concat("            console.log("+this.utils.tid_and_indent_code()+"\"Reasons for hooking: "+HookGeneratorUtils.prefix_of_placeholder_for_reasons_for_hooking+addr+"\")\n");
 			}
 			if (this.isAdvanced && this.advancedhookoptionsdialog.isGenerateBacktraceCheckboxchecked)
 			{

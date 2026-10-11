@@ -59,8 +59,41 @@ public class HookGeneratorUtils {
 	 * script carries.
 	 */
 	public static final String characters_allowed_in_variable_name="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-	/*The address of the hook is appended to this, and the result is put inside the hook, to be replaced when the hooks are backpatched. It is kept here so that the places that write it and the places that look for it can never disagree*/
-	protected static final String prefix_of_placeholder_for_hook_code_to_be_added_later="PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_";
+	/*
+	 * The address of the hook is appended to one of these, and the result is put inside the hook, to be replaced when the hooks
+	 * are backpatched. They are kept here so that the places that write them and the places that look for them can never disagree.
+	 *
+	 * Careful: the piece in the middle is drawn at random, once, and it is what keeps a placeholder from being forged. The two
+	 * backpatchings run one after the other, the reasons first and the code second, so text that the first one puts into a hook is
+	 * still there when the second one goes looking. A reason carries the names of the functions of the analysed program, and a
+	 * name made only of letters, digits and underscores passes through the escaper untouched, because there is nothing in it to
+	 * escape. A function called PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_00401000 would therefore arrive inside the message of
+	 * the reasons exactly as it was written, and the second backpatching would take it for its own marker and write a block of
+	 * javascript into the middle of a string literal. A name nobody can guess cannot be written into a binary beforehand.
+	 *
+	 * The readable half is kept in front of the random half on purpose: whatever looks for the text PLACEHOLDER in a generated
+	 * script, a person reading one or a check of the self test, goes on finding it.
+	 */
+	protected static final String prefix_of_placeholder_for_hook_code_to_be_added_later=
+			"PLACEHOLDER_FOR_HOOK_CODE_TO_BE_ADDED_LATER_"+return_a_random_string_that_a_placeholder_cannot_be_forged_without()+"_";
+	protected static final String prefix_of_placeholder_for_reasons_for_hooking=
+			"PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+return_a_random_string_that_a_placeholder_cannot_be_forged_without()+"_";
+
+	/*
+	 * Careful: this cannot be generate_random_string_from_pool(), which belongs to an instance, because the two above are worked
+	 * out when the class is loaded and there is no instance then. It must also stay below the declaration of the characters it
+	 * draws from and above nothing that it needs, which is why it reads that one field and nothing else.
+	 */
+	private static String return_a_random_string_that_a_placeholder_cannot_be_forged_without()
+	{
+		Random random=new Random();
+		StringBuffer retval=new StringBuffer(16);
+		for (int i=0;i<16;i++)
+		{
+			retval.append(characters_allowed_in_variable_name.charAt(random.nextInt(characters_allowed_in_variable_name.length())));
+		}
+		return retval.toString();
+	}
 
 	public HookGeneratorUtils(HookGenerator incoming_hook_generator)
 	{
@@ -1376,7 +1409,7 @@ public class HookGeneratorUtils {
 				String current_hook_for_addr=this.incoming_hook_generator.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.get(i);
 				String reason_str_for_current_hook=this.incoming_hook_generator.internal_structures_for_hook_generation.Addresses_for_current_hook_str.get(current_addr.toString());
 				String formatted_reason_str_for_current_hook=format_reason_for_hooking(reason_str_for_current_hook);
-				this.incoming_hook_generator.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.set(i,current_hook_for_addr.replace("PLACEHOLDER_FOR_REASONS_FOR_HOOKING_"+current_addr,formatted_reason_str_for_current_hook));
+				this.incoming_hook_generator.internal_structures_for_hook_generation.hooks_generated_per_address_in_order_of_appearance.set(i,current_hook_for_addr.replace(prefix_of_placeholder_for_reasons_for_hooking+current_addr,formatted_reason_str_for_current_hook));
 			
 				if (i%100==0 && this.incoming_hook_generator.incoming_monitor.isCancelled()) {return ;} //check for cancellation by the user
 				if (i%1000==0) {this.incoming_hook_generator.incoming_monitor.setMessage("Backpatching reasons in hooks "+(int)((i*100)/this.incoming_hook_generator.internal_structures_for_hook_generation.how_many_addresses_have_been_hooked_so_far_in_this_batch)+"%...");}
